@@ -4,27 +4,27 @@
 
 1. Create `.task/user-request.txt` with your request
 2. Set state: `./scripts/state-manager.sh set plan_drafting ""`
-3. Run: `./scripts/orchestrator.sh` (or `./scripts/orchestrator.sh interactive`)
+3. Run: `./scripts/orchestrator.sh`
 
 ## Execution Modes
 
-### Headless Mode (Default)
+### Interactive Mode (Default)
 ```bash
-./scripts/orchestrator.sh run
-```
-- Spawns Claude and Codex as separate subprocesses
-- Each subprocess runs with its model from `pipeline.config.json`
-- Fully autonomous operation
-
-### Interactive Mode
-```bash
-./scripts/orchestrator.sh interactive
+./scripts/orchestrator.sh
 ```
 - Sets `CLAUDE_INTERACTIVE=1` environment variable
 - Claude scripts output prompts instead of spawning subprocesses
 - User executes the prompts in their current Claude Code session
 - Codex scripts still spawn subprocesses (for schema enforcement)
 - Useful for debugging or controlled execution
+
+### Headless Mode
+```bash
+./scripts/orchestrator.sh headless
+```
+- Spawns Claude and Codex as separate subprocesses
+- Each subprocess runs with its model from `pipeline.config.json`
+- Fully autonomous operation
 
 ---
 
@@ -226,7 +226,7 @@ The orchestrator uses PID-based locking to prevent concurrent execution:
 - Lock file: `.task/.orchestrator.lock`
 - Contains PID of running orchestrator
 - Stale locks (dead PID) are automatically cleaned up
-- Both `run` and `reset` commands require the lock
+- Both `interactive`/`headless` and `reset` commands require the lock
 
 ```bash
 # If you see "Another orchestrator is running" but it's stale:
