@@ -17,7 +17,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["severity", "area", "message"],
+        "required": ["severity", "area", "message", "suggestion"],
         "properties": {
           "severity": {
             "type": "string",
@@ -37,7 +37,8 @@
             "type": "string",
             "description": "How to address this concern"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "description": "List of concerns found during review"
     },
