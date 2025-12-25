@@ -445,7 +445,6 @@ case "${1:-run}" in
     rm -f .task/plan.json .task/plan-refined.json .task/plan-review.json
     rm -f .task/current-task.json .task/user-request.txt
     rm -f .task/internal-review-sonnet.json .task/internal-review-opus.json
-    rm -f .task/.codex-session-active  # Clear Codex session marker
     log_success "Pipeline reset to idle"
     ;;
   dry-run|--dry-run)

@@ -326,38 +326,6 @@ Create `pipeline.config.local.json` for local overrides (gitignored):
 
 ---
 
-## Codex Session Resume
-
-Codex reviews conditionally use `resume --last` to carry forward context:
-
-- **First review** (new task): Fresh session, no resume
-- **Subsequent reviews**: Uses `resume --last` for context continuity
-
-```bash
-# First review (no resume)
-codex exec \
-  --full-auto \
-  --model "$MODEL" \
-  --output-schema docs/schemas/review-result.schema.json \
-  -o .task/review-result.json \
-  "Review the implementation..."
-
-# Subsequent reviews (with resume)
-codex exec \
-  --full-auto \
-  --model "$MODEL" \
-  --output-schema docs/schemas/review-result.schema.json \
-  -o .task/review-result.json \
-  resume --last \
-  "Review the implementation..."
-```
-
-Session tracking uses `.task/.codex-session-active` marker:
-- Created after first successful Codex call
-- Cleared when entering `plan_drafting` or via reset
-
----
-
 ## Current Sprint Context
 
 Add sprint-specific context here as needed. This section is referenced by the orchestrator when starting new features.

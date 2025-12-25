@@ -4,24 +4,12 @@ set -e
 # Run Codex to review the refined plan
 # Uses structured output for consistent review format
 
-# Session marker file - tracks if Codex has been called for this task
-SESSION_MARKER=".task/.codex-session-active"
-
 # Read model from config
 # Merge local config if it exists
 if [[ -f pipeline.config.local.json ]]; then
   MODEL=$(jq -rs '.[0] * .[1] | .models.reviewer.model' pipeline.config.json pipeline.config.local.json)
 else
   MODEL=$(jq -r '.models.reviewer.model' pipeline.config.json)
-fi
-
-# Determine if this is the first Codex call for this task
-USE_RESUME=""
-if [[ -f "$SESSION_MARKER" ]]; then
-  USE_RESUME="resume --last"
-  echo "[INFO] Resuming Codex session from previous review"
-else
-  echo "[INFO] Starting fresh Codex session (first review for this task)"
 fi
 
 STANDARDS=$(cat docs/standards.md)
@@ -79,14 +67,11 @@ Decision rules:
 - Only 'suggestion' concerns -> status: approved"
 
 # Execute Codex with schema enforcement
-# resume --last: only used for subsequent reviews (not first review of a task)
-# shellcheck disable=SC2086
 codex exec \
   --full-auto \
   --model "$MODEL" \
   --output-schema docs/schemas/plan-review.schema.json \
   -o .task/plan-review.json \
-  $USE_RESUME \
   "$PROMPT"
 
 # Verify output file was created and is valid JSON
@@ -99,9 +84,6 @@ if ! jq empty .task/plan-review.json 2>/dev/null; then
   echo "ERROR: .task/plan-review.json is not valid JSON" >&2
   exit 1
 fi
-
-# Mark session as active only after successful validation
-touch "$SESSION_MARKER"
 
 echo "Plan review complete: .task/plan-review.json"
 cat .task/plan-review.json | jq '{status, summary}'
