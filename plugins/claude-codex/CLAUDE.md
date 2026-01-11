@@ -2,6 +2,17 @@
 
 > **IMPORTANT**: This project uses a skill-based sequential review workflow. The main Claude Code thread handles planning and implementation. Reviews use forked skills (sonnet → opus → codex) that run in isolated contexts.
 
+## Path Reference
+
+When this plugin is installed, paths are resolved as follows:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `${CLAUDE_PLUGIN_ROOT}` | Plugin installation directory (scripts, docs, configs) | `~/.claude/plugins/claude-codex/` |
+| `${CLAUDE_PROJECT_DIR}` | Your project directory (task state files) | `/path/to/your/project/` |
+
+**Important:** The `.task/` directory is always created in your **project directory**, not the plugin directory. This allows the plugin to work across multiple projects without conflicts.
+
 ## Architecture Overview
 
 ```
@@ -35,8 +46,8 @@ To implement your request:
    echo "Your feature description here" > .task/user-request.txt
 
 2. Start the pipeline:
-   ./scripts/state-manager.sh set plan_drafting ""
-   ./scripts/orchestrator.sh
+   "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_drafting ""
+   "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh"
 
 The pipeline will:
 - Create and refine a plan (main thread)
@@ -44,8 +55,8 @@ The pipeline will:
 - Implement the code (/implement-sonnet)
 - Sequential reviews: /review-sonnet → /review-opus → /review-codex
 
-For status: ./scripts/orchestrator.sh status
-For recovery: ./scripts/recover.sh
+For status: "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" status
+For recovery: "${CLAUDE_PLUGIN_ROOT}/scripts/recover.sh"
 ```
 
 ---
@@ -125,8 +136,8 @@ complete
 ## Shared Knowledge
 
 Read these docs before any work:
-- `docs/standards.md` - Coding standards and review criteria
-- `docs/workflow.md` - Pipeline process and output formats
+- `${CLAUDE_PLUGIN_ROOT}/docs/standards.md` - Coding standards and review criteria
+- `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` - Pipeline process and output formats
 
 ---
 

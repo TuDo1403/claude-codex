@@ -9,12 +9,14 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 You are starting the multi-AI pipeline. Follow this process exactly.
 
+**Note:** Scripts are located at `${CLAUDE_PLUGIN_ROOT}/scripts/`. The `.task/` directory is created in your project at `${CLAUDE_PROJECT_DIR}/.task/`.
+
 ## Step 1: Clean Up Previous Task
 
 First, reset the pipeline state:
 
 ```bash
-./scripts/orchestrator.sh reset
+"${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" reset
 ```
 
 This removes old `.task/` files and sets state to `idle`.
@@ -24,7 +26,7 @@ This removes old `.task/` files and sets state to `idle`.
 Write the user's request to `.task/user-request.txt`:
 
 ```bash
-mkdir -p .task
+mkdir -p "${CLAUDE_PROJECT_DIR:-.}/.task"
 ```
 
 Then write the request content to `.task/user-request.txt`.
@@ -32,7 +34,7 @@ Then write the request content to `.task/user-request.txt`.
 ## Step 3: Set Initial State
 
 ```bash
-./scripts/state-manager.sh set plan_drafting ""
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_drafting ""
 ```
 
 ## Step 4: Create Initial Plan
@@ -48,7 +50,7 @@ Create `.task/plan.json` with:
 ## Step 5: Transition to Refining
 
 ```bash
-./scripts/state-manager.sh set plan_refining "$(jq -r .id .task/plan.json)"
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_refining "$(jq -r .id .task/plan.json)"
 ```
 
 ## Step 6: Refine Plan
@@ -91,7 +93,7 @@ When all approve, continue.
 ## Step 10: Complete
 
 ```bash
-./scripts/state-manager.sh set complete "$(jq -r .id .task/plan-refined.json)"
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set complete "$(jq -r .id .task/plan-refined.json)"
 ```
 
 Report success to the user.

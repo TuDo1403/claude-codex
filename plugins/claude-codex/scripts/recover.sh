@@ -2,10 +2,8 @@
 # Recovery script for stuck or errored pipeline states
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-cd "$PROJECT_ROOT"
-
+# Source state manager for PLUGIN_ROOT and TASK_DIR
 source "$SCRIPT_DIR/state-manager.sh"
 
 # Colors
@@ -20,31 +18,32 @@ show_status() {
   echo "  State: $(get_status)"
   echo "  Task ID: $(get_task_id)"
   echo "  Iteration: $(get_iteration)"
+  echo "  Task Dir: $TASK_DIR"
   echo ""
 
-  if [[ -f .task/current-task.json ]]; then
+  if [[ -f "$TASK_DIR/current-task.json" ]]; then
     echo -e "${BLUE}Current Task:${NC}"
-    jq -r '.title // "No title"' .task/current-task.json
+    jq -r '.title // "No title"' "$TASK_DIR/current-task.json"
     echo ""
   fi
 
   local error_count
-  error_count=$(ls -1 .task/errors/*.json 2>/dev/null | wc -l)
+  error_count=$(ls -1 "$TASK_DIR/errors/"*.json 2>/dev/null | wc -l)
   if [[ $error_count -gt 0 ]]; then
     echo -e "${YELLOW}Errors: $error_count${NC}"
-    echo "  Latest: $(ls -t .task/errors/*.json 2>/dev/null | head -1)"
+    echo "  Latest: $(ls -t "$TASK_DIR/errors/"*.json 2>/dev/null | head -1)"
   fi
 }
 
 reset_to_idle() {
   echo -e "${YELLOW}Resetting pipeline to idle...${NC}"
   set_state "idle" ""
-  rm -f .task/impl-result.json .task/review-result.json
-  rm -f .task/plan.json .task/plan-refined.json .task/plan-review.json
-  rm -f .task/current-task.json .task/user-request.txt
-  rm -f .task/internal-review-sonnet.json .task/internal-review-opus.json
-  rm -f .task/review-sonnet.json .task/review-opus.json .task/review-codex.json
-  rm -f .task/.codex-session-active  # Clear Codex session marker
+  rm -f "$TASK_DIR/impl-result.json" "$TASK_DIR/review-result.json"
+  rm -f "$TASK_DIR/plan.json" "$TASK_DIR/plan-refined.json" "$TASK_DIR/plan-review.json"
+  rm -f "$TASK_DIR/current-task.json" "$TASK_DIR/user-request.txt"
+  rm -f "$TASK_DIR/internal-review-sonnet.json" "$TASK_DIR/internal-review-opus.json"
+  rm -f "$TASK_DIR/review-sonnet.json" "$TASK_DIR/review-opus.json" "$TASK_DIR/review-codex.json"
+  rm -f "$TASK_DIR/.codex-session-active"  # Clear Codex session marker
   echo -e "${GREEN}Pipeline reset to idle${NC}"
 }
 
@@ -62,28 +61,28 @@ retry_current() {
         plan_drafting)
           echo -e "${YELLOW}Retrying from plan creation (failed in: $previous_state)...${NC}"
           set_state "plan_drafting" ""
-          rm -f .task/plan.json
+          rm -f "$TASK_DIR/plan.json"
           ;;
         plan_refining|plan_reviewing)
           echo -e "${YELLOW}Retrying from plan refinement (failed in: $previous_state)...${NC}"
           set_state "plan_refining" "$task_id"
-          rm -f .task/plan-refined.json .task/plan-review.json
+          rm -f "$TASK_DIR/plan-refined.json" "$TASK_DIR/plan-review.json"
           ;;
         implementing|reviewing|fixing|"")
           echo -e "${YELLOW}Retrying from implementing (failed in: ${previous_state:-unknown})...${NC}"
           set_state "implementing" "$task_id"
-          rm -f .task/impl-result.json .task/review-result.json
+          rm -f "$TASK_DIR/impl-result.json" "$TASK_DIR/review-result.json"
           ;;
         *)
           echo -e "${YELLOW}Unknown previous state ($previous_state), defaulting to implementing...${NC}"
           set_state "implementing" "$task_id"
-          rm -f .task/impl-result.json .task/review-result.json
+          rm -f "$TASK_DIR/impl-result.json" "$TASK_DIR/review-result.json"
           ;;
       esac
       ;;
     fixing)
       echo -e "${YELLOW}Retrying fix...${NC}"
-      rm -f .task/impl-result.json
+      rm -f "$TASK_DIR/impl-result.json"
       ;;
     *)
       echo -e "${RED}Cannot retry from state: $status${NC}"
@@ -91,7 +90,7 @@ retry_current() {
       ;;
   esac
 
-  echo -e "${GREEN}Ready to retry. Run: ./scripts/orchestrator.sh${NC}"
+  echo -e "${GREEN}Ready to retry. Run: $PLUGIN_ROOT/scripts/orchestrator.sh${NC}"
 }
 
 skip_task() {
@@ -100,9 +99,9 @@ skip_task() {
 
   echo -e "${YELLOW}Skipping task: $task_id${NC}"
 
-  if [[ -f .task/current-task.json ]]; then
-    mkdir -p .task/archive
-    mv .task/current-task.json ".task/archive/skipped-${task_id}-$(date +%Y%m%d-%H%M%S).json"
+  if [[ -f "$TASK_DIR/current-task.json" ]]; then
+    mkdir -p "$TASK_DIR/archive"
+    mv "$TASK_DIR/current-task.json" "$TASK_DIR/archive/skipped-${task_id}-$(date +%Y%m%d-%H%M%S).json"
   fi
 
   reset_to_idle
@@ -129,10 +128,10 @@ rollback_files() {
 }
 
 clear_errors() {
-  if [[ -d .task/errors ]] && ls .task/errors/*.json >/dev/null 2>&1; then
+  if [[ -d "$TASK_DIR/errors" ]] && ls "$TASK_DIR/errors/"*.json >/dev/null 2>&1; then
     local count
-    count=$(ls -1 .task/errors/*.json | wc -l)
-    rm -f .task/errors/*.json
+    count=$(ls -1 "$TASK_DIR/errors/"*.json | wc -l)
+    rm -f "$TASK_DIR/errors/"*.json
     echo -e "${GREEN}Cleared $count error logs${NC}"
   else
     echo "No error logs to clear"

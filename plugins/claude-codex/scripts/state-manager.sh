@@ -1,12 +1,24 @@
 #!/bin/bash
 # State manager using JSON files with atomic writes
 
-STATE_FILE=".task/state.json"
+# Determine plugin root (where configs live) - use CLAUDE_PLUGIN_ROOT or derive from script location
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+  PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
+else
+  # Fallback: derive from script location (for direct execution)
+  _STATE_MGR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  PLUGIN_ROOT="$(dirname "$_STATE_MGR_DIR")"
+fi
+
+# Use CLAUDE_PROJECT_DIR for task state (project-local), fall back to current dir
+# This ensures each project has its own .task directory regardless of plugin installation scope
+TASK_DIR="${CLAUDE_PROJECT_DIR:-.}/.task"
+STATE_FILE="$TASK_DIR/state.json"
 
 # Initialize state if not exists (with full schema)
 init_state() {
   if [[ ! -f "$STATE_FILE" ]]; then
-    mkdir -p .task
+    mkdir -p "$TASK_DIR"
     cat > "$STATE_FILE" << 'EOF'
 {
   "status": "idle",
@@ -46,7 +58,7 @@ set_state() {
 
   # When starting a new task, clear the Codex session marker for fresh context
   if [[ "$new_status" == "plan_drafting" ]]; then
-    rm -f .task/.codex-session-active
+    rm -f "$TASK_DIR/.codex-session-active"
   fi
 
   local current_status
@@ -142,26 +154,36 @@ is_stuck() {
 }
 
 # Get config value with local override support
+# Priority: project-local > plugin-local > plugin-base
 get_config_value() {
   local filter="$1"
-  local base_cfg="pipeline.config.json"
-  local local_cfg="pipeline.config.local.json"
+  local base_cfg="$PLUGIN_ROOT/pipeline.config.json"
+  local plugin_local_cfg="$PLUGIN_ROOT/pipeline.config.local.json"
+  local project_dir="${CLAUDE_PROJECT_DIR:-.}"
+  local project_local_cfg="$project_dir/pipeline.config.local.json"
 
-  if [[ -f "$local_cfg" ]] && jq empty "$local_cfg" 2>/dev/null; then
-    jq -r -s ".[0] * .[1] | $filter" "$base_cfg" "$local_cfg"
+  # Build list of config files to merge (base first, overrides last)
+  local configs=("$base_cfg")
+
+  if [[ -f "$plugin_local_cfg" ]] && jq empty "$plugin_local_cfg" 2>/dev/null; then
+    configs+=("$plugin_local_cfg")
+  fi
+
+  if [[ -f "$project_local_cfg" ]] && jq empty "$project_local_cfg" 2>/dev/null; then
+    configs+=("$project_local_cfg")
+  fi
+
+  # Merge configs (later files override earlier)
+  if [[ ${#configs[@]} -eq 1 ]]; then
+    jq -r "$filter" "${configs[0]}"
   else
-    jq -r "$filter" "$base_cfg"
+    jq -r -s 'reduce .[] as $item ({}; . * $item) | '"$filter" "${configs[@]}"
   fi
 }
 
 # Get review loop limit from config (legacy, for backward compat)
 get_review_loop_limit() {
-  local config_file="pipeline.config.json"
-  if [[ -f "$config_file" ]]; then
-    jq -r '.autonomy.reviewLoopLimit // 10' "$config_file"
-  else
-    echo "10"
-  fi
+  get_config_value '.autonomy.reviewLoopLimit // 10'
 }
 
 # Get plan review limit (separate from code review)

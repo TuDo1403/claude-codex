@@ -13,21 +13,22 @@ A Claude Code plugin marketplace providing multi-AI orchestration tools for plan
 ### Step 2: Install Plugin
 
 ```bash
-# Install at user scope (available in all projects)
+# Install at user scope (available in all projects) - RECOMMENDED
 /plugin install claude-codex@claude-codex --scope user
 
 # OR install at project scope (this project only)
 /plugin install claude-codex@claude-codex --scope project
 ```
 
-### Step 3: Setup Task Directory
+### Step 3: Add .task to .gitignore
 
-After installing, initialize the task directory in your project:
+The plugin automatically creates `.task/` in your project directory. Add it to `.gitignore`:
 
 ```bash
-# Copy task template to your project
-cp -r ~/.claude/plugins/claude-codex/.task.template .task
+echo ".task" >> .gitignore
 ```
+
+> **Multi-Project Support:** When installed at user scope, you can run the pipeline in multiple projects simultaneously. Each project gets its own isolated `.task/` directory.
 
 ### Usage
 
@@ -52,20 +53,20 @@ Multi-AI orchestration pipeline with sequential review workflow (sonnet → opus
 
 **Skills included:**
 
-| Skill | Model | Purpose |
-|-------|-------|---------|
-| `multi-ai` | - | Pipeline entry point (starts full workflow) |
-| `implement-sonnet` | Claude Sonnet 4.5 | Code implementation with main context |
-| `review-sonnet` | Claude Sonnet 4.5 | Fast review (code + security + tests) |
-| `review-opus` | Claude Opus 4.5 | Deep review (architecture + subtle issues) |
-| `review-codex` | Codex CLI | Final review via OpenAI Codex |
+| Skill              | Model             | Purpose                                     |
+| ------------------ | ----------------- | ------------------------------------------- |
+| `multi-ai`         | -                 | Pipeline entry point (starts full workflow) |
+| `implement-sonnet` | Claude Sonnet 4.5 | Code implementation with main context       |
+| `review-sonnet`    | Claude Sonnet 4.5 | Fast review (code + security + tests)       |
+| `review-opus`      | Claude Opus 4.5   | Deep review (architecture + subtle issues)  |
+| `review-codex`     | Codex CLI         | Final review via OpenAI Codex               |
 
 ## Recommended Subscriptions
 
-| Service | Subscription | Purpose |
-|---------|--------------|---------|
-| **Claude Code** | MAX 20 | Main thread (planning, coding) + Review skills |
-| **Codex CLI** | Plus | Final reviews (invoked via skill) |
+| Service         | Subscription | Purpose                                        |
+| --------------- | ------------ | ---------------------------------------------- |
+| **Claude Code** | MAX 20       | Main thread (planning, coding) + Review skills |
+| **Codex CLI**   | Plus         | Final reviews (invoked via skill)              |
 
 ## How It Works
 
@@ -76,6 +77,7 @@ Multi-AI orchestration pipeline with sequential review workflow (sonnet → opus
 ```
 
 This command:
+
 1. Cleans up previous task files
 2. Creates and refines a plan
 3. Runs sequential reviews (sonnet → opus → codex)
@@ -92,6 +94,7 @@ Plan/Code → review-sonnet → fix → review-opus → fix → review-codex →
 ```
 
 **Key benefits:**
+
 - Each model provides unique perspective without re-reviewing
 - Progressive refinement (fast → deep → final)
 - Token-efficient (forked context isolation)
@@ -131,12 +134,26 @@ claude-codex/
 
 The plugin includes `pipeline.config.json` with these settings:
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `autonomy.mode` | `autonomous`, `semi-autonomous`, `supervised` | `semi-autonomous` |
-| `autonomy.planReviewLoopLimit` | Max plan review iterations | `10` |
-| `autonomy.codeReviewLoopLimit` | Max code review iterations | `15` |
-| `errorHandling.autoResolveAttempts` | Retries before pausing | `3` |
+| Setting                             | Description                                   | Default           |
+| ----------------------------------- | --------------------------------------------- | ----------------- |
+| `autonomy.mode`                     | `autonomous`, `semi-autonomous`, `supervised` | `semi-autonomous` |
+| `autonomy.planReviewLoopLimit`      | Max plan review iterations                    | `10`              |
+| `autonomy.codeReviewLoopLimit`      | Max code review iterations                    | `15`              |
+| `errorHandling.autoResolveAttempts` | Retries before pausing                        | `3`               |
+
+### Per-Project Overrides
+
+Create `pipeline.config.local.json` in your project directory to override settings:
+
+```json
+{
+  "autonomy": {
+    "codeReviewLoopLimit": 20
+  }
+}
+```
+
+Config priority: project-local > plugin-local > plugin-base
 
 ## Creating Your Own Plugin
 
@@ -148,10 +165,11 @@ To add a new plugin to this marketplace:
 4. Update `.claude-plugin/marketplace.json` to include your plugin
 
 Example plugin.json:
+
 ```json
 {
   "name": "your-plugin-name",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "What your plugin does",
   "author": { "name": "Your Name" },
   "skills": "./skills/"

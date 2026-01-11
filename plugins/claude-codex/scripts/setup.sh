@@ -3,9 +3,9 @@
 # Detects global CLAUDE.md conflicts and configures workflow preferences
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-cd "$PROJECT_ROOT"
+# Source state manager for PLUGIN_ROOT and TASK_DIR
+source "$SCRIPT_DIR/state-manager.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -17,7 +17,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 GLOBAL_CLAUDE_MD="$HOME/.claude/CLAUDE.md"
-PREFERENCES_FILE=".task/preferences.json"
+PREFERENCES_FILE="$TASK_DIR/preferences.json"
 
 # Check for global CLAUDE.md
 check_global_claude_md() {
@@ -49,7 +49,7 @@ get_existing_preference() {
 # Save preference
 save_preference() {
   local mode="$1"
-  mkdir -p .task
+  mkdir -p "$TASK_DIR"
 
   if [[ -f "$PREFERENCES_FILE" ]]; then
     jq --arg mode "$mode" '.workflow_mode = $mode | .configured_at = (now | todate)' \
@@ -68,10 +68,11 @@ EOF
 # Update CLAUDE.md based on preference
 update_claude_md() {
   local mode="$1"
+  local project_dir="${CLAUDE_PROJECT_DIR:-.}"
 
   case "$mode" in
     orchestrator)
-      cat > "$PROJECT_ROOT/CLAUDE.md" << 'CLAUDE_EOF'
+      cat > "$project_dir/CLAUDE.md" << 'CLAUDE_EOF'
 # Claude Code - Multi-AI Pipeline Project
 
 > **IMPORTANT**: This project uses a subagent-based orchestrator workflow. The main Claude Code thread coordinates subagents for planning, implementation, and internal reviews. Codex is called only at key checkpoints.
@@ -96,6 +97,15 @@ Main Claude Code Thread (Orchestrator)
 
 ---
 
+## Path Reference
+
+Scripts and configs are in the plugin directory, task state is in your project:
+- Scripts: `${CLAUDE_PLUGIN_ROOT}/scripts/`
+- Docs: `${CLAUDE_PLUGIN_ROOT}/docs/`
+- Task state: `.task/` (in this project directory)
+
+---
+
 ## When User Asks to Implement Something
 
 Guide users to use the orchestrator workflow:
@@ -109,8 +119,8 @@ To implement your request:
    echo "Your feature description here" > .task/user-request.txt
 
 2. Start the pipeline:
-   ./scripts/state-manager.sh set plan_drafting ""
-   ./scripts/orchestrator.sh
+   "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_drafting ""
+   "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh"
 
 The pipeline will:
 - Create and refine a plan (planner + researcher subagents)
@@ -120,8 +130,8 @@ The pipeline will:
 - Run internal code reviews (6 reviewers in parallel: code/security/test × sonnet/opus)
 - Final code review (Codex)
 
-For status: ./scripts/orchestrator.sh status
-For recovery: ./scripts/recover.sh
+For status: "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" status
+For recovery: "${CLAUDE_PLUGIN_ROOT}/scripts/recover.sh"
 ```
 
 ---
@@ -131,7 +141,7 @@ For recovery: ./scripts/recover.sh
 The orchestrator displays the current state and what action to take:
 
 ```bash
-$ ./scripts/orchestrator.sh
+$ "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh"
 [INFO] Current state: plan_drafting
 
 ACTION: Invoke 'planner' subagent
@@ -141,7 +151,7 @@ Input: .task/user-request.txt
 Output: .task/plan.json
 
 After completion, transition state:
-  ./scripts/state-manager.sh set plan_refining "$(jq -r .id .task/plan.json)"
+  "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_refining "$(jq -r .id .task/plan.json)"
 ```
 
 ### Workflow Steps
@@ -175,8 +185,8 @@ Located in `.claude/agents/`:
 ## Shared Knowledge
 
 Read these docs before any work:
-- `docs/standards.md` - Coding standards and review criteria
-- `docs/workflow.md` - Pipeline process and output formats
+- `${CLAUDE_PLUGIN_ROOT}/docs/standards.md` - Coding standards and review criteria
+- `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` - Pipeline process and output formats
 
 ---
 
@@ -199,7 +209,7 @@ CLAUDE_EOF
       ;;
 
     hybrid)
-      cat > "$PROJECT_ROOT/CLAUDE.md" << 'CLAUDE_EOF'
+      cat > "$project_dir/CLAUDE.md" << 'CLAUDE_EOF'
 # Claude Code - Multi-AI Pipeline Project (Hybrid Mode)
 
 This project supports two workflows. Choose based on task complexity:
@@ -215,8 +225,8 @@ For larger features requiring multiple review cycles, use the subagent-based orc
 echo "Your feature description" > .task/user-request.txt
 
 # 2. Run the pipeline
-./scripts/state-manager.sh set plan_drafting ""
-./scripts/orchestrator.sh
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_drafting ""
+"${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh"
 ```
 
 The orchestrator coordinates:
@@ -241,8 +251,8 @@ Located in `.claude/agents/`:
 ## Shared Knowledge
 
 Read these docs before any work:
-- `docs/standards.md` - Coding standards and review criteria
-- `docs/workflow.md` - Pipeline process and output formats
+- `${CLAUDE_PLUGIN_ROOT}/docs/standards.md` - Coding standards and review criteria
+- `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` - Pipeline process and output formats
 
 ## Asking for Clarification
 
@@ -333,8 +343,8 @@ main() {
 
   echo ""
   echo -e "${BOLD}Next steps:${NC}"
-  echo "  1. Run: ./scripts/state-manager.sh init"
-  echo "  2. Run: ./scripts/orchestrator.sh dry-run"
+  echo "  1. Run: $PLUGIN_ROOT/scripts/state-manager.sh init"
+  echo "  2. Run: $PLUGIN_ROOT/scripts/orchestrator.sh dry-run"
   echo ""
 }
 

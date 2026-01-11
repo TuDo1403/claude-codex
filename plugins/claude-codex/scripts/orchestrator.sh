@@ -2,11 +2,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-cd "$PROJECT_ROOT"
-
-# Source state manager
+# Source state manager (sets PLUGIN_ROOT and TASK_DIR)
 source "$SCRIPT_DIR/state-manager.sh"
 
 # Colors for output
@@ -22,7 +19,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Locking functions
-LOCK_FILE=".task/.orchestrator.lock"
+LOCK_FILE="$TASK_DIR/.orchestrator.lock"
 
 get_lock_pid() {
   [[ ! -f "$LOCK_FILE" ]] && return
@@ -59,7 +56,7 @@ acquire_lock() {
     fi
   fi
 
-  mkdir -p .task
+  mkdir -p "$TASK_DIR"
   if ( set -C; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
     return 0
   else
@@ -82,8 +79,8 @@ setup_traps() {
 
 # Get max retries from config
 get_max_retries() {
-  if [[ -f "pipeline.config.json" ]]; then
-    jq -r '.errorHandling.autoResolveAttempts // 3' pipeline.config.json
+  if [[ -f "$PLUGIN_ROOT/pipeline.config.json" ]]; then
+    jq -r '.errorHandling.autoResolveAttempts // 3' "$PLUGIN_ROOT/pipeline.config.json"
   else
     echo "3"
   fi
@@ -95,10 +92,10 @@ log_error_to_file() {
   local exit_code="$2"
   local message="$3"
 
-  mkdir -p .task/errors
+  mkdir -p "$TASK_DIR/errors"
   local timestamp
   timestamp=$(date +%Y%m%d-%H%M%S)
-  local error_file=".task/errors/error-${timestamp}.json"
+  local error_file="$TASK_DIR/errors/error-${timestamp}.json"
 
   cat > "$error_file" << EOF
 {
@@ -127,18 +124,18 @@ run_dry_run() {
   echo ""
 
   # 1. Check .task/ directory
-  if [[ -d .task ]]; then
-    echo "Task directory: OK"
+  if [[ -d "$TASK_DIR" ]]; then
+    echo "Task directory: OK ($TASK_DIR)"
   else
-    echo "Task directory: MISSING"
+    echo "Task directory: MISSING ($TASK_DIR)"
     ((errors++)) || true
   fi
 
   # 2. Check state.json
-  if [[ -f .task/state.json ]]; then
-    if jq empty .task/state.json 2>/dev/null; then
+  if [[ -f "$TASK_DIR/state.json" ]]; then
+    if jq empty "$TASK_DIR/state.json" 2>/dev/null; then
       local status
-      status=$(jq -r '.status // empty' .task/state.json)
+      status=$(jq -r '.status // empty' "$TASK_DIR/state.json")
       local valid_states="idle plan_drafting plan_refining plan_reviewing implementing reviewing fixing complete error needs_user_input"
       if [[ -n "$status" ]] && [[ " $valid_states " =~ " $status " ]]; then
         echo "State file: OK (status: $status)"
@@ -155,15 +152,15 @@ run_dry_run() {
   fi
 
   # 3. Check config file
-  if [[ -f pipeline.config.json ]]; then
-    if jq empty pipeline.config.json 2>/dev/null; then
+  if [[ -f "$PLUGIN_ROOT/pipeline.config.json" ]]; then
+    if jq empty "$PLUGIN_ROOT/pipeline.config.json" 2>/dev/null; then
       echo "Config file: OK"
     else
       echo "Config file: INVALID JSON"
       ((errors++)) || true
     fi
   else
-    echo "Config file: MISSING"
+    echo "Config file: MISSING ($PLUGIN_ROOT/pipeline.config.json)"
     ((errors++)) || true
   fi
 
@@ -189,7 +186,7 @@ run_dry_run() {
   [[ $scripts_ok -eq 1 ]] && echo "Scripts: OK (${#required_scripts[@]} scripts)"
 
   # 5. Check skills
-  local skills_dir="$PROJECT_ROOT/skills"
+  local skills_dir="$PLUGIN_ROOT/skills"
   local required_skills=(
     "implement-sonnet/SKILL.md"
     "review-sonnet/SKILL.md"
@@ -212,25 +209,26 @@ run_dry_run() {
   fi
 
   # 5. Check required docs
-  if [[ -f docs/standards.md ]]; then
+  if [[ -f "$PLUGIN_ROOT/docs/standards.md" ]]; then
     echo "docs/standards.md: OK"
   else
     echo "docs/standards.md: MISSING"
     ((errors++)) || true
   fi
 
-  if [[ -f docs/workflow.md ]]; then
+  if [[ -f "$PLUGIN_ROOT/docs/workflow.md" ]]; then
     echo "docs/workflow.md: OK"
   else
     echo "docs/workflow.md: MISSING"
     ((errors++)) || true
   fi
 
-  # 6. Check .gitignore for .task
-  if [[ -f .gitignore ]] && grep -q "\.task" .gitignore; then
+  # 6. Check .gitignore for .task (in project directory)
+  local project_gitignore="${CLAUDE_PROJECT_DIR:-.}/.gitignore"
+  if [[ -f "$project_gitignore" ]] && grep -q "\.task" "$project_gitignore"; then
     echo ".gitignore (.task): OK"
   else
-    echo ".gitignore (.task): WARNING - .task not in .gitignore"
+    echo ".gitignore (.task): WARNING - .task not in $project_gitignore"
     ((warnings++)) || true
   fi
 
@@ -259,13 +257,13 @@ run_dry_run() {
   # 8. Check for global CLAUDE.md conflict
   local global_claude="$HOME/.claude/CLAUDE.md"
   if [[ -f "$global_claude" ]]; then
-    if [[ -f .task/preferences.json ]] && jq -e '.workflow_mode' .task/preferences.json >/dev/null 2>&1; then
+    if [[ -f "$TASK_DIR/preferences.json" ]] && jq -e '.workflow_mode' "$TASK_DIR/preferences.json" >/dev/null 2>&1; then
       local mode
-      mode=$(jq -r '.workflow_mode' .task/preferences.json)
+      mode=$(jq -r '.workflow_mode' "$TASK_DIR/preferences.json")
       echo "Global CLAUDE.md: DETECTED (configured: $mode mode)"
     else
       echo "Global CLAUDE.md: WARNING - detected but setup not run"
-      echo "  Run: ./scripts/setup.sh"
+      echo "  Run: $PLUGIN_ROOT/scripts/setup.sh"
       ((warnings++)) || true
     fi
   else
@@ -298,87 +296,87 @@ show_next_action() {
   case "$status" in
     idle)
       echo "Pipeline idle. To start:"
-      echo "  1. Create .task/user-request.txt with your feature request"
-      echo "  2. Run: ./scripts/state-manager.sh set plan_drafting \"\""
-      echo "  3. Create .task/plan.json with the initial plan"
+      echo "  1. Create $TASK_DIR/user-request.txt with your feature request"
+      echo "  2. Run: $PLUGIN_ROOT/scripts/state-manager.sh set plan_drafting \"\""
+      echo "  3. Create $TASK_DIR/plan.json with the initial plan"
       ;;
     plan_drafting)
       echo "ACTION: Create initial plan (main thread)"
       echo ""
       echo "Task: Create initial plan from user request"
-      echo "Input: .task/user-request.txt"
-      echo "Output: .task/plan.json"
+      echo "Input: $TASK_DIR/user-request.txt"
+      echo "Output: $TASK_DIR/plan.json"
       echo ""
       echo "After completion, transition state:"
-      echo "  ./scripts/state-manager.sh set plan_refining \"\$(jq -r .id .task/plan.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set plan_refining \"\$(jq -r .id $TASK_DIR/plan.json)\""
       ;;
     plan_refining)
       echo "ACTION: Refine plan with technical details (main thread)"
       echo ""
       echo "Task: Research codebase and refine plan"
-      echo "Input: .task/plan.json"
-      if [[ -f .task/review-codex.json ]]; then
-        echo "Feedback: .task/review-codex.json (address all concerns - restart cycle)"
-      elif [[ -f .task/review-opus.json ]]; then
-        echo "Feedback: .task/review-opus.json (address concerns)"
-      elif [[ -f .task/review-sonnet.json ]]; then
-        echo "Feedback: .task/review-sonnet.json (address concerns)"
+      echo "Input: $TASK_DIR/plan.json"
+      if [[ -f "$TASK_DIR/review-codex.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-codex.json (address all concerns - restart cycle)"
+      elif [[ -f "$TASK_DIR/review-opus.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-opus.json (address concerns)"
+      elif [[ -f "$TASK_DIR/review-sonnet.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-sonnet.json (address concerns)"
       fi
-      echo "Output: .task/plan-refined.json"
+      echo "Output: $TASK_DIR/plan-refined.json"
       echo ""
       echo "After completion, run SEQUENTIAL reviews (each model reviews once):"
-      echo "  1. Invoke /review-sonnet → .task/review-sonnet.json"
+      echo "  1. Invoke /review-sonnet → $TASK_DIR/review-sonnet.json"
       echo "     If needs_changes: fix issues, then continue to step 2"
-      echo "  2. Invoke /review-opus → .task/review-opus.json"
+      echo "  2. Invoke /review-opus → $TASK_DIR/review-opus.json"
       echo "     If needs_changes: fix issues, then continue to step 3"
-      echo "  3. Invoke /review-codex → .task/review-codex.json"
+      echo "  3. Invoke /review-codex → $TASK_DIR/review-codex.json"
       echo "     If needs_changes: fix issues, restart from step 1"
       echo "     If approved: transition to implementing"
       echo ""
       echo "When all reviews pass:"
-      echo "  ./scripts/state-manager.sh set implementing \"\$(jq -r .id .task/plan-refined.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(jq -r .id $TASK_DIR/plan-refined.json)\""
       ;;
     plan_reviewing)
       echo "NOTE: This state is deprecated. Reviews now happen within plan_refining."
       echo ""
       echo "Use the sequential skill-based review flow in plan_refining state."
       echo "To return to plan_refining:"
-      echo "  ./scripts/state-manager.sh set plan_refining \"\$(jq -r .id .task/plan-refined.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set plan_refining \"\$(jq -r .id $TASK_DIR/plan-refined.json)\""
       ;;
     implementing)
       echo "ACTION: Invoke /implement-sonnet to implement the approved plan"
       echo ""
       echo "Task: Implement the approved plan"
       echo "Skill: /implement-sonnet"
-      echo "Input: .task/plan-refined.json"
-      echo "Standards: docs/standards.md"
-      if [[ -f .task/review-codex.json ]]; then
-        echo "Feedback: .task/review-codex.json (address all concerns - restart cycle)"
-      elif [[ -f .task/review-opus.json ]]; then
-        echo "Feedback: .task/review-opus.json (address concerns)"
-      elif [[ -f .task/review-sonnet.json ]]; then
-        echo "Feedback: .task/review-sonnet.json (address concerns)"
+      echo "Input: $TASK_DIR/plan-refined.json"
+      echo "Standards: $PLUGIN_ROOT/docs/standards.md"
+      if [[ -f "$TASK_DIR/review-codex.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-codex.json (address all concerns - restart cycle)"
+      elif [[ -f "$TASK_DIR/review-opus.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-opus.json (address concerns)"
+      elif [[ -f "$TASK_DIR/review-sonnet.json" ]]; then
+        echo "Feedback: $TASK_DIR/review-sonnet.json (address concerns)"
       fi
-      echo "Output: .task/impl-result.json"
+      echo "Output: $TASK_DIR/impl-result.json"
       echo ""
       echo "After implementation, run SEQUENTIAL reviews (each model reviews once):"
-      echo "  1. Invoke /review-sonnet → .task/review-sonnet.json"
+      echo "  1. Invoke /review-sonnet → $TASK_DIR/review-sonnet.json"
       echo "     If needs_changes: fix issues, then continue to step 2"
-      echo "  2. Invoke /review-opus → .task/review-opus.json"
+      echo "  2. Invoke /review-opus → $TASK_DIR/review-opus.json"
       echo "     If needs_changes: fix issues, then continue to step 3"
-      echo "  3. Invoke /review-codex → .task/review-codex.json"
+      echo "  3. Invoke /review-codex → $TASK_DIR/review-codex.json"
       echo "     If needs_changes: fix issues, restart from step 1"
       echo "     If approved: transition to complete"
       echo ""
       echo "When all reviews pass:"
-      echo "  ./scripts/state-manager.sh set complete \"\$(jq -r .id .task/plan-refined.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set complete \"\$(jq -r .id $TASK_DIR/plan-refined.json)\""
       ;;
     reviewing)
       echo "NOTE: This state is deprecated. Reviews now happen within implementing."
       echo ""
       echo "Use the sequential skill-based review flow in implementing state."
       echo "To return to implementing:"
-      echo "  ./scripts/state-manager.sh set implementing \"\$(jq -r .id .task/plan-refined.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(jq -r .id $TASK_DIR/plan-refined.json)\""
       ;;
     fixing)
       echo "NOTE: This state is deprecated. Fixes now happen within implementing."
@@ -387,32 +385,32 @@ show_next_action() {
       echo "  sonnet → fix → opus → fix → codex → fix (restart from sonnet)"
       echo ""
       echo "To return to implementing:"
-      echo "  ./scripts/state-manager.sh set implementing \"\$(jq -r .id .task/plan-refined.json)\""
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(jq -r .id $TASK_DIR/plan-refined.json)\""
       ;;
     complete)
       log_success "Task completed successfully!"
       echo ""
       echo "To reset for next task:"
-      echo "  ./scripts/orchestrator.sh reset"
+      echo "  $PLUGIN_ROOT/scripts/orchestrator.sh reset"
       ;;
     needs_user_input)
       log_warn "Pipeline paused - user input required"
       echo ""
       echo "Check for questions in:"
-      echo "  - .task/impl-result.json"
-      echo "  - .task/plan-refined.json"
+      echo "  - $TASK_DIR/impl-result.json"
+      echo "  - $TASK_DIR/plan-refined.json"
       echo ""
       echo "After providing answers, resume with:"
-      echo "  ./scripts/state-manager.sh set <plan_refining|implementing> <task_id>"
+      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set <plan_refining|implementing> <task_id>"
       ;;
     error)
       log_error "Pipeline in error state"
       echo ""
       echo "To recover:"
-      echo "  ./scripts/recover.sh"
+      echo "  $PLUGIN_ROOT/scripts/recover.sh"
       echo ""
       echo "Or reset:"
-      echo "  ./scripts/orchestrator.sh reset"
+      echo "  $PLUGIN_ROOT/scripts/orchestrator.sh reset"
       ;;
     *)
       log_error "Unknown state: $status"
@@ -443,12 +441,12 @@ case "${1:-run}" in
     log_warn "Resetting pipeline state..."
     init_state
     set_state "idle" ""
-    rm -f .task/impl-result.json .task/review-result.json
-    rm -f .task/plan.json .task/plan-refined.json .task/plan-review.json
-    rm -f .task/current-task.json .task/user-request.txt
-    rm -f .task/internal-review-sonnet.json .task/internal-review-opus.json
-    rm -f .task/review-sonnet.json .task/review-opus.json .task/review-codex.json
-    rm -f .task/.codex-session-active  # Clear Codex session marker
+    rm -f "$TASK_DIR/impl-result.json" "$TASK_DIR/review-result.json"
+    rm -f "$TASK_DIR/plan.json" "$TASK_DIR/plan-refined.json" "$TASK_DIR/plan-review.json"
+    rm -f "$TASK_DIR/current-task.json" "$TASK_DIR/user-request.txt"
+    rm -f "$TASK_DIR/internal-review-sonnet.json" "$TASK_DIR/internal-review-opus.json"
+    rm -f "$TASK_DIR/review-sonnet.json" "$TASK_DIR/review-opus.json" "$TASK_DIR/review-codex.json"
+    rm -f "$TASK_DIR/.codex-session-active"  # Clear Codex session marker
     log_success "Pipeline reset to idle"
     ;;
   dry-run|--dry-run)
