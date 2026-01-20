@@ -195,7 +195,7 @@ Example plugin.json:
 ```json
 {
   "name": "your-plugin-name",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "What your plugin does",
   "author": { "name": "Your Name" },
   "skills": "./skills/"
