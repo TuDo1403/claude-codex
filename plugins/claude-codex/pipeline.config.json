@@ -62,7 +62,7 @@
 
   "timeouts": {
     "implementation": 600,
-    "review": 300,
+    "review": 600,
     "autoResolve": 180
   },
 
