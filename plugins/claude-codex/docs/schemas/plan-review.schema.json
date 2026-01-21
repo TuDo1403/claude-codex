@@ -36,7 +36,7 @@
           },
           "area": {
             "type": "string",
-            "enum": ["requirements", "approach", "complexity", "risks", "feasibility"],
+            "enum": ["requirements", "approach", "complexity", "risks", "feasibility", "security"],
             "description": "Which aspect of the plan the concern relates to"
           },
           "message": {

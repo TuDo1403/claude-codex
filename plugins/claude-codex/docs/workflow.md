@@ -316,10 +316,24 @@ Format:
   "summary": "Review summary",
   "needs_clarification": false,
   "clarification_questions": [],
+  "checklist": {
+    "security_owasp": "PASS|WARN|FAIL",
+    "error_handling": "PASS|WARN|FAIL",
+    "resource_management": "PASS|WARN|FAIL",
+    "configuration": "PASS|WARN|FAIL",
+    "code_quality": "PASS|WARN|FAIL",
+    "concurrency": "PASS|WARN|FAIL|N/A",
+    "logging": "PASS|WARN|FAIL",
+    "dependencies": "PASS|WARN|FAIL",
+    "api_design": "PASS|WARN|FAIL|N/A",
+    "backward_compatibility": "PASS|WARN|FAIL|N/A",
+    "testing": "PASS|WARN|FAIL",
+    "over_engineering": "PASS|WARN|FAIL"
+  },
   "issues": [
     {
       "severity": "error|warning|suggestion",
-      "category": "code|security|test|plan",
+      "category": "security|error_handling|resource|config|quality|concurrency|logging|deps|api|compat|test|over_engineering",
       "file": "path/to/file.ts",
       "line": 42,
       "message": "Issue description",

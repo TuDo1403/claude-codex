@@ -33,6 +33,11 @@
             "type": "string",
             "enum": ["error", "warning", "suggestion"]
           },
+          "category": {
+            "type": "string",
+            "enum": ["security", "error_handling", "resource", "config", "quality", "concurrency", "logging", "deps", "api", "compat", "test", "over_engineering"],
+            "description": "Review category this issue belongs to"
+          },
           "file": {
             "type": "string"
           },
@@ -46,39 +51,82 @@
             "type": "string"
           }
         },
-        "required": ["id", "severity", "file", "line", "message", "suggestion"],
+        "required": ["id", "severity", "category", "file", "line", "message", "suggestion"],
         "additionalProperties": false
       }
     },
     "checklist": {
       "type": "object",
       "properties": {
-        "security": {
+        "security_owasp": {
           "type": "string",
-          "enum": ["PASS", "WARN", "FAIL"]
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "OWASP Top 10 security check"
         },
-        "logic": {
+        "error_handling": {
           "type": "string",
-          "enum": ["PASS", "WARN", "FAIL"]
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "Error handling completeness"
         },
-        "standards": {
+        "resource_management": {
           "type": "string",
-          "enum": ["PASS", "WARN", "FAIL"]
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "Memory/connection leak prevention"
         },
-        "tests": {
+        "configuration": {
           "type": "string",
-          "enum": ["PASS", "WARN", "FAIL"]
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "No hardcoded secrets/values"
+        },
+        "code_quality": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "Readability, simplification, comments, DRY"
+        },
+        "concurrency": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL", "N/A"],
+          "description": "Race conditions, thread safety"
+        },
+        "logging": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "No secrets in logs, appropriate logging"
+        },
+        "dependencies": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "No CVEs, minimal dependencies"
+        },
+        "api_design": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL", "N/A"],
+          "description": "Input validation, response consistency"
+        },
+        "backward_compatibility": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL", "N/A"],
+          "description": "Breaking changes, migration"
+        },
+        "testing": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "Test coverage and quality"
         },
         "over_engineering": {
           "type": "string",
-          "enum": ["PASS", "WARN", "FAIL"]
+          "enum": ["PASS", "WARN", "FAIL"],
+          "description": "Unnecessary complexity detection"
         }
       },
       "required": [
-        "security",
-        "logic",
-        "standards",
-        "tests",
+        "security_owasp",
+        "error_handling",
+        "resource_management",
+        "configuration",
+        "code_quality",
+        "logging",
+        "testing",
         "over_engineering"
       ],
       "additionalProperties": false
