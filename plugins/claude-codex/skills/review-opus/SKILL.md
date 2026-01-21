@@ -1,7 +1,7 @@
 ---
 name: review-opus
 description: Deep code/plan review for architecture, subtle bugs, and test quality. Use after sonnet review for thorough analysis.
-model: claude-opus-4-5-20251101
+model: opus
 plugin-scoped: true
 context: fork
 allowed-tools: Read, Glob, Grep, Bash, Write
