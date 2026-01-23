@@ -95,9 +95,22 @@ set_state() {
   local new_status="$1"
   local task_id="$2"
 
-  # When starting a new task, clear the Codex session marker for fresh context
+  # GATE: Block implementation unless plan reviews are approved
+  if [[ "$new_status" == "implementing" || "$new_status" == "implementing_loop" ]]; then
+    if ! validate_plan_reviews; then
+      echo "State NOT updated. Complete plan reviews first."
+      return 1
+    fi
+  fi
+
+  # When starting a new task, clear stale state for fresh context
   if [[ "$new_status" == "plan_drafting" ]]; then
     rm -f "$TASK_DIR/.codex-session-active"
+    # Clear stale review files to prevent old approvals from bypassing validation
+    rm -f "$TASK_DIR/review-sonnet.json" "$TASK_DIR/review-opus.json" "$TASK_DIR/review-codex.json"
+    rm -f "$TASK_DIR/plan-review-state.json"
+    # Clear stale loop state to prevent interference with new task
+    rm -f "$TASK_DIR/loop-state.json"
   fi
 
   local current_status
@@ -253,6 +266,130 @@ exceeded_review_limit() {
   [[ $iteration -ge $limit ]] && echo "1" || echo "0"
 }
 
+# =============================================================================
+# Plan Review State Management
+# =============================================================================
+
+# Initialize plan review state
+init_plan_review_state() {
+  local task_dir="${CLAUDE_PROJECT_DIR:-.}/.task"
+  local plan_review_file="$task_dir/plan-review-state.json"
+  local max_iter
+  max_iter=$(get_plan_review_limit)
+
+  mkdir -p "$task_dir"
+  cat > "$plan_review_file" << EOF
+{
+  "iteration": 0,
+  "max_iterations": ${max_iter},
+  "started_at": null,
+  "reviews_completed": {
+    "sonnet": false,
+    "opus": false,
+    "codex": false
+  }
+}
+EOF
+  $JSON_TOOL set "$plan_review_file" "started_at@=now"
+}
+
+# Increment plan review iteration
+increment_plan_review_iteration() {
+  local task_dir="${CLAUDE_PROJECT_DIR:-.}/.task"
+  local plan_review_file="$task_dir/plan-review-state.json"
+
+  if [[ ! -f "$plan_review_file" ]]; then
+    init_plan_review_state
+  fi
+
+  $JSON_TOOL set "$plan_review_file" "+iteration"
+
+  # Reset reviews_completed for new iteration
+  $JSON_TOOL set "$plan_review_file" \
+    "reviews_completed.sonnet:=false" \
+    "reviews_completed.opus:=false" \
+    "reviews_completed.codex:=false"
+}
+
+# Get plan review iteration
+get_plan_review_iteration() {
+  local task_dir="${CLAUDE_PROJECT_DIR:-.}/.task"
+  local plan_review_file="$task_dir/plan-review-state.json"
+
+  if [[ ! -f "$plan_review_file" ]]; then
+    echo "0"
+    return
+  fi
+
+  $JSON_TOOL get "$plan_review_file" ".iteration // 0"
+}
+
+# Get plan review max iterations (config takes precedence over state file)
+get_plan_review_max() {
+  # Always prefer config value - it may have been updated
+  get_plan_review_limit
+}
+
+# Check if plan review loop exceeded
+exceeded_plan_review_limit() {
+  local iteration limit
+  iteration=$(get_plan_review_iteration)
+  limit=$(get_plan_review_max)
+
+  [[ $iteration -ge $limit ]] && echo "1" || echo "0"
+}
+
+# =============================================================================
+# Plan Review Validation (Gate for Implementation)
+# =============================================================================
+
+# Validate plan reviews are approved before allowing implementation
+# Returns 0 if all approved, 1 if not
+validate_plan_reviews() {
+  local task_dir="${CLAUDE_PROJECT_DIR:-.}/.task"
+  local reviews=("review-sonnet.json" "review-opus.json" "review-codex.json")
+  local missing=()
+  local not_approved=()
+
+  for review in "${reviews[@]}"; do
+    local review_file="$task_dir/$review"
+    if [[ ! -f "$review_file" ]]; then
+      missing+=("$review")
+    else
+      local status
+      status=$($JSON_TOOL get "$review_file" ".status // empty")
+      if [[ "$status" != "approved" ]]; then
+        not_approved+=("$review: $status")
+      fi
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 || ${#not_approved[@]} -gt 0 ]]; then
+    echo ""
+    echo -e "\033[1;31m✗ Cannot start implementation - plan reviews incomplete\033[0m"
+    echo ""
+    if [[ ${#missing[@]} -gt 0 ]]; then
+      echo "Missing reviews:"
+      for m in "${missing[@]}"; do
+        echo "  - $m (run the review skill first)"
+      done
+    fi
+    if [[ ${#not_approved[@]} -gt 0 ]]; then
+      echo "Not approved:"
+      for n in "${not_approved[@]}"; do
+        echo "  - $n"
+      done
+    fi
+    echo ""
+    echo "Run: /review-sonnet, /review-opus, /review-codex"
+    echo "All must return status: approved before implementation."
+    echo ""
+    return 1
+  fi
+
+  return 0
+}
+
 # Source this file to use functions, or run directly for testing
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
@@ -268,10 +405,30 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       ;;
     set)
       set_state "$2" "$3"
-      echo "State updated"
+      # Only print success if set_state succeeded
+      [[ $? -eq 0 ]] && echo "State updated"
+      ;;
+    init-plan-review)
+      init_plan_review_state
+      echo "Plan review state initialized"
+      ;;
+    increment-plan-review)
+      increment_plan_review_iteration
+      echo "Plan review iteration incremented"
+      ;;
+    get-plan-review-iteration)
+      get_plan_review_iteration
+      ;;
+    exceeded-plan-review-limit)
+      exceeded_plan_review_limit
+      ;;
+    validate-plan-reviews)
+      if validate_plan_reviews; then
+        echo "All plan reviews approved"
+      fi
       ;;
     *)
-      echo "Usage: $0 {init|status|state|set <status> <task_id>}"
+      echo "Usage: $0 {init|status|state|set <status> <task_id>|init-plan-review|increment-plan-review|get-plan-review-iteration|exceeded-plan-review-limit|validate-plan-reviews}"
       exit 1
       ;;
   esac

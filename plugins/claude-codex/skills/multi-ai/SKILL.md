@@ -130,23 +130,57 @@ Before proceeding, analyze for potential infinite loop risks:
 
 ### Step 6: Plan Review Loop (Autonomous)
 
-Run the review loop for the plan:
+**Initialize plan review tracking:**
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" init-plan-review
+```
+
+**Run the review loop with iteration tracking:**
 
 ```
-LOOP_COUNT = 0
-MAX_LOOPS = planReviewLoopLimit from config (default: 10)
+PLAN_ITERATION = 0
+MAX_PLAN_ITERATIONS = planReviewLoopLimit from config (default: 10)
 
-WHILE LOOP_COUNT < MAX_LOOPS:
+WHILE PLAN_ITERATION < MAX_PLAN_ITERATIONS:
+
+    # Increment at start of each cycle
+    "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" increment-plan-review
+
     1. INVOKE /review-sonnet (plan mode)
+       - If needs_changes → FIX plan, continue to step 2
+
     2. INVOKE /review-opus (plan mode)
+       - If needs_changes → FIX plan, continue to step 3
+
     3. INVOKE /review-codex (plan mode)
+       - If approved → EXIT loop, proceed to implementation
+       - If needs_changes → FIX plan, go back to step 1
+       - If needs_clarification → ASK user, then continue
 
-    IF all approved → BREAK
-    IF needs_changes → FIX and continue
-    IF needs_clarification → ASK user, then continue
-
-    LOOP_COUNT += 1
+    PLAN_ITERATION = $("${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" get-plan-review-iteration)
 ```
+
+**Check limit before each iteration:**
+
+```bash
+if [[ $("${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" exceeded-plan-review-limit) == "1" ]]; then
+  echo "Plan review loop exceeded limit. Asking user for guidance."
+  # ASK user if they want to continue or abort
+fi
+```
+
+**IMPORTANT:** You CANNOT proceed to implementation until ALL plan reviews are approved.
+The state-manager.sh will block transition to `implementing` or `implementing_loop` states
+if any plan review is missing or not approved.
+
+**Verify before implementation:**
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" validate-plan-reviews
+```
+
+This command will fail with a detailed error if any reviews are incomplete.
 
 ---
 

@@ -136,7 +136,7 @@ run_dry_run() {
     if $JSON_TOOL valid "$TASK_DIR/state.json" 2>/dev/null; then
       local status
       status=$($JSON_TOOL get "$TASK_DIR/state.json" ".status // empty")
-      local valid_states="idle requirements_gathering plan_drafting plan_refining plan_reviewing implementing reviewing fixing complete error needs_user_input"
+      local valid_states="idle requirements_gathering plan_drafting plan_refining plan_reviewing implementing implementing_loop reviewing fixing complete error needs_user_input"
       if [[ -n "$status" ]] && [[ " $valid_states " =~ " $status " ]]; then
         echo "State file: OK (status: $status)"
       else
@@ -387,6 +387,24 @@ show_next_action() {
       echo ""
       echo "When all reviews pass:"
       echo "  $PLUGIN_ROOT/scripts/state-manager.sh set complete \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
+      ;;
+    implementing_loop)
+      echo "ACTION: Ralph Loop - TDD-driven autonomous implementation"
+      echo ""
+      echo "The stop hook will iterate until completion criteria met:"
+      echo "  - All reviews approved (sonnet, opus, codex)"
+      echo "  - All test commands pass"
+      echo ""
+      if [[ -f "$TASK_DIR/loop-state.json" ]]; then
+        local iteration max_iter
+        iteration=$($JSON_TOOL get "$TASK_DIR/loop-state.json" ".iteration // 0")
+        max_iter=$($JSON_TOOL get "$TASK_DIR/loop-state.json" ".max_iterations // 10")
+        echo "Loop state: iteration $iteration of $max_iter"
+      fi
+      echo ""
+      echo "To cancel the loop:"
+      echo "  /cancel-loop"
+      echo "  OR: rm $TASK_DIR/loop-state.json"
       ;;
     reviewing)
       echo "NOTE: This state is deprecated. Reviews now happen within implementing."

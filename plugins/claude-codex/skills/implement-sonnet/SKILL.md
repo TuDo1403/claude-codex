@@ -8,6 +8,24 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 # Implement with Sonnet
 
+## PREREQUISITE CHECK (MANDATORY)
+
+Before implementing, verify plan reviews are complete by running:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" validate-plan-reviews
+```
+
+**IF THIS COMMAND FAILS** → Stop immediately. Do NOT write any code.
+The error message tells you which reviews are missing. Run them first:
+- `/review-sonnet`
+- `/review-opus`
+- `/review-codex`
+
+All must have status: "approved" before you can proceed with implementation.
+
+---
+
 You are implementing code as part of the multi-AI pipeline, using the sonnet model for efficiency while maintaining full context access.
 
 ## Your Role
