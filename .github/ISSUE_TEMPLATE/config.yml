@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/Z-M-Huang/claude-codex/wiki
+    about: Check the wiki for guides and documentation
+  - name: Discussions
+    url: https://github.com/Z-M-Huang/claude-codex/discussions
+    about: Ask questions and share ideas

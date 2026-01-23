@@ -1,0 +1,37 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  review:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this PR for the Claude Codex project (a multi-AI orchestration pipeline plugin).
+
+            Check for:
+            1. Code quality and readability
+            2. Security issues (no hardcoded secrets, proper input validation)
+            3. Consistency with existing codebase patterns
+            4. Proper error handling
+            5. Documentation updates if needed
+
+            For skill files (.md):
+            - Verify frontmatter is valid YAML
+            - Check model field uses aliases (sonnet/opus/haiku) not full IDs
+
+            For schema files (.json):
+            - Ensure all properties are in "required" array (OpenAI compatibility)
+            - Verify "additionalProperties": false is set
+
+            Be constructive and specific. Approve if changes are good, request changes if issues found.

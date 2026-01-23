@@ -1,0 +1,54 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: |
+        I'm always frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this to work?
+      placeholder: |
+        It would be great if the plugin could...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've tried?
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Claude Codex does this relate to?
+      options:
+        - Multi-AI Pipeline (/multi-ai)
+        - Ralph Loop (TDD implementation)
+        - Review Skills (/review-sonnet, /review-opus, /review-codex)
+        - User Story (/user-story)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other information, screenshots, or examples
