@@ -77,9 +77,6 @@ After installation, use skills with the plugin namespace:
 ### claude-codex
 
 Multi-AI orchestration pipeline with **TDD-driven Ralph Loop** using Task + Resume architecture.
-
-**New in v1.2.0:** Task + Resume architecture with custom agents - workers can be resumed with preserved context for iterative fixes. Requirements gathering, planning, implementation, and reviews all handled by specialized agents.
-
 **Skills:**
 
 | Skill          | Purpose                                     |

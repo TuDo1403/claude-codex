@@ -6,8 +6,9 @@
  * state and what actions should be taken next. It helps prevent skipping steps
  * like plan reviews before implementation.
  *
- * In the multi-session orchestrator architecture:
- * - Reviews are done via Task tool with plan-reviewer/code-reviewer agents
+ * In the multi-session orchestrator architecture with task-based enforcement:
+ * - Pipeline tasks are tracked via TaskCreate/TaskUpdate/TaskList tools
+ * - Reviews are enforced via blockedBy dependencies
  * - Codex review is done via /review-codex skill
  */
 
@@ -18,6 +19,7 @@ const path = require('path');
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TASK_DIR = path.join(PROJECT_DIR, '.task');
 const STATE_FILE = path.join(TASK_DIR, 'state.json');
+const PIPELINE_TASKS_FILE = path.join(TASK_DIR, 'pipeline-tasks.json');
 
 /**
  * Safely read and parse JSON file
@@ -57,6 +59,13 @@ function formatReviewStatus(reviewStatus) {
 }
 
 /**
+ * Check if pipeline tasks have been created
+ */
+function hasPipelineTasks() {
+  return fs.existsSync(PIPELINE_TASKS_FILE);
+}
+
+/**
  * Main hook logic
  */
 function main() {
@@ -70,6 +79,7 @@ function main() {
   const reviewStatus = checkReviewStatus();
   const allApproved = Object.values(reviewStatus).every(s => s === 'approved');
   const currentStatus = state.status || 'idle';
+  const pipelineTasksExist = hasPipelineTasks();
 
   let guidance = '';
 
@@ -85,13 +95,12 @@ function main() {
           '',
           `Current review status: ${statusStr}`,
           '',
-          'REQUIRED ACTIONS:',
-          '1. Run plan review with sonnet (Task tool + plan-reviewer agent)',
-          '2. Run plan review with opus (Task tool + plan-reviewer agent)',
-          '3. Run /review-codex (Codex final gate)',
+          'REQUIRED ACTIONS (task-enforced sequence):',
+          '1. Query TaskList() to find next unblocked review task',
+          '2. Execute the task (Sonnet → Opus → Codex)',
+          '3. If needs_changes, create fix task before proceeding',
           '',
-          'ALL reviews must return status: "approved" before you can start implementation.',
-          'DO NOT attempt to transition to implementing state until all reviews pass.',
+          'blockedBy dependencies prevent skipping. Use TaskList() to find the next task.',
           ''
         ].join('\n');
       }
@@ -99,16 +108,35 @@ function main() {
 
     case 'plan_drafting':
       // Just created plan, remind about review phase
-      guidance = [
-        '',
-        '**PIPELINE STATE: Plan Drafting**',
-        '',
-        'After creating plan-refined.json, you must:',
-        '1. Transition to plan_refining state',
-        '2. Run all plan reviews (sonnet, opus, codex)',
-        '3. Only start implementation after all reviews approve',
-        ''
-      ].join('\n');
+      // BUT: if all reviews are already approved, state is stale - skip guidance
+      if (allApproved) {
+        // State is stale - reviews passed but state wasn't updated
+        // Don't show confusing guidance
+        break;
+      }
+      if (pipelineTasksExist) {
+        guidance = [
+          '',
+          '**PIPELINE STATE: Plan Created**',
+          '',
+          'Pipeline tasks exist. Use the task-based execution loop:',
+          '1. Query TaskList() to find next unblocked task',
+          '2. Execute the task (plan reviews are blocked until plan task completes)',
+          '3. Mark task completed, loop back to step 1',
+          ''
+        ].join('\n');
+      } else {
+        guidance = [
+          '',
+          '**PIPELINE STATE: Plan Drafting**',
+          '',
+          'After creating plan-refined.json:',
+          '1. Create pipeline task chain with TaskCreate (if not already done)',
+          '2. Use TaskList() to find next task and execute it',
+          '3. Reviews are enforced via blockedBy dependencies',
+          ''
+        ].join('\n');
+      }
       break;
 
     case 'implementing':
@@ -123,14 +151,30 @@ function main() {
           `Current review status: ${statusStr}`,
           '',
           'This may indicate a pipeline issue. All plan reviews should be approved',
-          'before implementation begins.',
+          'before implementation begins. blockedBy dependencies should prevent this.',
           ''
         ].join('\n');
       }
       break;
 
+    case 'idle':
+      // Idle state - no active pipeline
+      // If there are pipeline tasks but state is idle, something may be off
+      if (pipelineTasksExist) {
+        guidance = [
+          '',
+          '**PIPELINE STATE: Idle (with existing tasks)**',
+          '',
+          'Pipeline tasks exist but state is idle.',
+          'Use TaskList() to check task status and continue execution.',
+          ''
+        ].join('\n');
+      }
+      // Otherwise, no guidance needed for idle state
+      break;
+
     default:
-      // Other states (idle, requirements_gathering, complete, etc.)
+      // Other states (requirements_gathering, complete, etc.)
       // No special guidance needed
       break;
   }
