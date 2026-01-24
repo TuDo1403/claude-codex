@@ -167,6 +167,11 @@ Read: .task/plan-refined.json
 
 ## Phase 3: Plan Reviews (Autonomous)
 
+**CRITICAL: Reviews MUST run in sequence: Sonnet → Opus → Codex**
+
+You CANNOT skip to Codex. You MUST run Sonnet first, then Opus, then Codex.
+Each reviewer catches different issues. Skipping any reviewer defeats the purpose.
+
 ### Step 7: Initialize Plan Review
 
 ```bash
@@ -174,7 +179,7 @@ Read: .task/plan-refined.json
 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_reviewing "$(bun ${CLAUDE_PLUGIN_ROOT}/scripts/json-tool.ts get .task/plan-refined.json .id)"
 ```
 
-### Step 8: Review Loop
+### Step 8: Review Loop (SEQUENTIAL - DO NOT SKIP STEPS)
 
 ```
 PLAN_ITERATION = 0
@@ -185,7 +190,11 @@ WHILE PLAN_ITERATION < MAX_PLAN_ITERATIONS:
     # Increment at start of each cycle
     "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" increment-plan-review
 
-    1. SONNET REVIEW
+    # SEQUENTIAL REVIEWS - MUST RUN IN ORDER
+    # Step 1 -> Step 2 -> Step 3
+    # DO NOT skip to Codex without running Sonnet and Opus first!
+
+    1. SONNET REVIEW (RUN THIS FIRST)
        Load: ${CLAUDE_PLUGIN_ROOT}/agents/plan-reviewer.md
        Task(
          subagent_type: "claude-codex:plan-reviewer",
@@ -316,9 +325,12 @@ WHILE iteration < max_iterations:
 
        IF status == "failed" -> Continue loop with error feedback
 
-    3. CODE REVIEWS (sequential, NOT resumable - each is fresh analysis)
+    3. CODE REVIEWS (SEQUENTIAL - DO NOT SKIP STEPS)
 
-       a. Sonnet Review:
+       **CRITICAL: Run in order: Sonnet → Opus → Codex**
+       DO NOT skip to Codex. Each reviewer catches different issues.
+
+       a. Sonnet Review (RUN THIS FIRST):
           Load: ${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md
           Task(
             subagent_type: "claude-codex:code-reviewer",
@@ -518,6 +530,7 @@ The skill handles:
 7. **Resume for context**: Use resume to preserve worker memory across iterations
 8. **NEVER run Codex via Bash**: Always use `Skill(review-codex)` - the skill handles all Codex CLI invocation, schema paths, and session management. Do NOT run `codex exec` directly.
 9. **MANDATORY Codex gate**: You MUST run `Skill(review-codex)` for BOTH plan reviews AND code reviews. The pipeline is NOT complete without Codex approval. If `.task/review-codex.json` doesn't exist, you have NOT finished the review phase.
+10. **SEQUENTIAL reviews - NO SKIPPING**: Reviews MUST run in order: Sonnet → Opus → Codex. You CANNOT skip to Codex without first running Sonnet and Opus. Each reviewer catches different issues - Sonnet finds obvious problems, Opus finds architectural issues, Codex provides independent verification. Skipping reviewers defeats the multi-AI review purpose.
 
 ---
 
