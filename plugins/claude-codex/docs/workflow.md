@@ -209,9 +209,7 @@ This is the core automation. No user pauses between reviews:
 
 ```
 LOOP_COUNT = 0
-MAX_LOOPS = <from pipeline.config.json>
-  - Plan reviews: autonomy.planReviewLoopLimit (default: 10)
-  - Code reviews: autonomy.codeReviewLoopLimit (default: 15)
+MAX_LOOPS = 10 (plan reviews) or 15 (code reviews)
 
 WHILE LOOP_COUNT < MAX_LOOPS:
 
@@ -479,26 +477,17 @@ Format:
 
 ---
 
-## Configuration
+## Default Settings
 
-### Autonomy Settings
+Pipeline uses hardcoded defaults:
 
-In `pipeline.config.json`:
-
-```json
-{
-  "autonomy": {
-    "mode": "ralph-loop",
-    "planReviewLoopLimit": 10,
-    "codeReviewLoopLimit": 15
-  },
-  "ralphLoop": {
-    "defaultMode": "ralph-loop",
-    "defaultMaxIterations": 10,
-    "completionPromise": "<promise>IMPLEMENTATION_COMPLETE</promise>"
-  }
-}
-```
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Plan review loop limit | 10 | Max iterations for plan reviews |
+| Code review loop limit | 15 | Max iterations for code reviews |
+| Max iterations (Ralph loop) | 10 | Max implementation iterations |
+| Completion promise | `<promise>IMPLEMENTATION_COMPLETE</promise>` | Marker for completion |
+| Auto-resolve attempts | 3 | Error recovery retries |
 
 ---
 
@@ -521,7 +510,6 @@ The orchestrator uses PID-based locking for destructive operations:
 Checks:
 - `.task/` directory exists
 - `state.json` valid
-- `pipeline.config.json` valid
 - Required scripts executable
 - Required skills exist (multi-ai, cancel-loop)
 - Required agents exist (6 agents including codex-reviewer)

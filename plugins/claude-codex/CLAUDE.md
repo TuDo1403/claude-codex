@@ -296,32 +296,6 @@ complete
 
 ---
 
-## Configuration
-
-`pipeline.config.json`:
-
-```json
-{
-  "version": "1.3.0",
-  "autonomy": {
-    "mode": "ralph-loop",
-    "planReviewLoopLimit": 10,
-    "codeReviewLoopLimit": 15
-  },
-  "ralphLoop": {
-    "defaultMode": "ralph-loop",
-    "defaultMaxIterations": 10,
-    "completionPromise": "<promise>IMPLEMENTATION_COMPLETE</promise>"
-  },
-  "enforcement": {
-    "method": "task-based",
-    "description": "Uses TaskCreate/TaskUpdate/TaskList with blockedBy dependencies"
-  }
-}
-```
-
----
-
 ## Emergency Controls
 
 If the loop is stuck:

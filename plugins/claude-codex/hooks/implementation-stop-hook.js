@@ -24,7 +24,6 @@ const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.dirname(__dirname);
 const TASK_DIR = path.join(PROJECT_DIR, '.task');
 const LOOP_STATE_FILE = path.join(TASK_DIR, 'loop-state.json');
 const PLAN_FILE = path.join(TASK_DIR, 'plan-refined.json');
-const CONFIG_FILE = path.join(PLUGIN_ROOT, 'pipeline.config.json');
 
 /**
  * Safely read and parse JSON file
@@ -87,9 +86,8 @@ function main() {
   const maxIterations = loopState.max_iterations || 10;
   const completionPromise = loopState.completion_promise || '<promise>IMPLEMENTATION_COMPLETE</promise>';
 
-  // Read config settings
-  const config = readJson(CONFIG_FILE);
-  const testSuccessExitCode = config?.ralphLoop?.testSuccessExitCode ?? 0;
+  // Test success is exit code 0
+  const testSuccessExitCode = 0;
 
   // Check if max iterations reached
   if (iteration >= maxIterations) {

@@ -77,13 +77,9 @@ setup_traps() {
   trap 'release_lock; exit 143' TERM
 }
 
-# Get max retries from config
+# Get max retries (hardcoded default)
 get_max_retries() {
-  if [[ -f "$PLUGIN_ROOT/pipeline.config.json" ]]; then
-    $JSON_TOOL get "$PLUGIN_ROOT/pipeline.config.json" ".errorHandling.autoResolveAttempts // 3"
-  else
-    echo "3"
-  fi
+  echo "3"
 }
 
 # Log error to file
@@ -151,20 +147,7 @@ run_dry_run() {
     echo "State file: MISSING (will be created on first run)"
   fi
 
-  # 3. Check config file
-  if [[ -f "$PLUGIN_ROOT/pipeline.config.json" ]]; then
-    if $JSON_TOOL valid "$PLUGIN_ROOT/pipeline.config.json" 2>/dev/null; then
-      echo "Config file: OK"
-    else
-      echo "Config file: INVALID JSON"
-      ((errors++)) || true
-    fi
-  else
-    echo "Config file: MISSING ($PLUGIN_ROOT/pipeline.config.json)"
-    ((errors++)) || true
-  fi
-
-  # 4. Check required scripts
+  # 3. Check required scripts
   local required_scripts=(
     "state-manager.sh"
     "orchestrator.sh"

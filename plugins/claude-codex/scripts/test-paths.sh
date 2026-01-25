@@ -107,20 +107,7 @@ log_test "STATE_FILE is relative to TASK_DIR"
   fi
 )
 
-# Test 6: Config reading uses PLUGIN_ROOT
-log_test "Config file path uses PLUGIN_ROOT"
-(
-  export CLAUDE_PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
-  source "$SCRIPT_DIR/state-manager.sh"
-  config_path="$PLUGIN_ROOT/pipeline.config.json"
-  if [[ -f "$config_path" ]]; then
-    log_pass "Config found at $config_path"
-  else
-    log_fail "Config not found at $config_path"
-  fi
-)
-
-# Test 7: Integration test - create state in a temp project directory
+# Test 6: Integration test - create state in a temp project directory
 log_test "Integration: State file created in project directory"
 (
   TEST_PROJECT_DIR=$(mktemp -d)
@@ -182,43 +169,36 @@ log_test "Integration: Multiple projects have isolated state"
   rm -rf "$PROJECT_A" "$PROJECT_B"
 )
 
-# Test 9: get_config_value reads from PLUGIN_ROOT
-log_test "get_config_value reads config from PLUGIN_ROOT"
+# Test 9: Review limit returns hardcoded default
+log_test "get_review_loop_limit returns hardcoded default"
 (
   export CLAUDE_PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
   export CLAUDE_PROJECT_DIR="/some/other/project"
   source "$SCRIPT_DIR/state-manager.sh"
 
-  # This should read from PLUGIN_ROOT, not CLAUDE_PROJECT_DIR
   limit=$(get_review_loop_limit)
-  if [[ -n "$limit" && "$limit" =~ ^[0-9]+$ ]]; then
+  if [[ "$limit" == "10" ]]; then
     log_pass "get_review_loop_limit returned: $limit"
   else
-    log_fail "get_review_loop_limit failed or returned non-numeric: $limit"
+    log_fail "get_review_loop_limit returned $limit, expected 10"
   fi
 )
 
-# Test 10: Per-project config override
-log_test "Per-project config override takes priority"
+# Test 10: Review limit defaults
+log_test "Review limit functions return expected defaults"
 (
-  TEST_PROJECT_DIR=$(mktemp -d)
   export CLAUDE_PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
-  export CLAUDE_PROJECT_DIR="$TEST_PROJECT_DIR"
-
-  # Create a project-local config with a different review limit
-  echo '{"autonomy": {"reviewLoopLimit": 99}}' > "$TEST_PROJECT_DIR/pipeline.config.local.json"
-
   source "$SCRIPT_DIR/state-manager.sh"
-  limit=$(get_review_loop_limit)
 
-  if [[ "$limit" == "99" ]]; then
-    log_pass "Project config override works: limit=$limit"
+  review_limit=$(get_review_loop_limit)
+  plan_limit=$(get_plan_review_limit)
+  code_limit=$(get_code_review_limit)
+
+  if [[ "$review_limit" == "10" && "$plan_limit" == "10" && "$code_limit" == "15" ]]; then
+    log_pass "Review limits correct: review=$review_limit, plan=$plan_limit, code=$code_limit"
   else
-    log_fail "Project config override failed: got $limit, expected 99"
+    log_fail "Review limits wrong: review=$review_limit, plan=$plan_limit, code=$code_limit"
   fi
-
-  # Cleanup
-  rm -rf "$TEST_PROJECT_DIR"
 )
 
 # Test 11: Gitignore prompt shown when .task not in .gitignore

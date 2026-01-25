@@ -1,7 +1,7 @@
 #!/bin/bash
 # State manager using JSON files with atomic writes
 
-# Determine plugin root (where configs live) - use CLAUDE_PLUGIN_ROOT or derive from script location
+# Determine plugin root - use CLAUDE_PLUGIN_ROOT or derive from script location
 if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
   PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 else
@@ -211,43 +211,19 @@ is_stuck() {
   [[ $diff -gt $timeout_seconds ]] && echo "1" || echo "0"
 }
 
-# Get config value with local override support
-# Priority: project-local > plugin-local > plugin-base
-get_config_value() {
-  local filter="$1"
-  local base_cfg="$PLUGIN_ROOT/pipeline.config.json"
-  local plugin_local_cfg="$PLUGIN_ROOT/pipeline.config.local.json"
-  local project_dir="${CLAUDE_PROJECT_DIR:-.}"
-  local project_local_cfg="$project_dir/pipeline.config.local.json"
-
-  # Build list of config files to merge (base first, overrides last)
-  local configs=("$base_cfg")
-
-  if [[ -f "$plugin_local_cfg" ]] && $JSON_TOOL valid "$plugin_local_cfg" 2>/dev/null; then
-    configs+=("$plugin_local_cfg")
-  fi
-
-  if [[ -f "$project_local_cfg" ]] && $JSON_TOOL valid "$project_local_cfg" 2>/dev/null; then
-    configs+=("$project_local_cfg")
-  fi
-
-  # Merge configs and get value (merge-get handles missing files gracefully)
-  $JSON_TOOL merge-get "$filter" "${configs[@]}"
-}
-
-# Get review loop limit from config (legacy, for backward compat)
+# Get review loop limit (hardcoded defaults)
 get_review_loop_limit() {
-  get_config_value '.autonomy.reviewLoopLimit // 10'
+  echo "10"
 }
 
-# Get plan review limit (separate from code review)
+# Get plan review limit
 get_plan_review_limit() {
-  get_config_value '.autonomy.planReviewLoopLimit // .autonomy.reviewLoopLimit // 10'
+  echo "10"
 }
 
-# Get code review limit (separate from plan review)
+# Get code review limit
 get_code_review_limit() {
-  get_config_value '.autonomy.codeReviewLoopLimit // .autonomy.reviewLoopLimit // 15'
+  echo "15"
 }
 
 # Check if we've exceeded review loop limit
@@ -324,9 +300,8 @@ get_plan_review_iteration() {
   $JSON_TOOL get "$plan_review_file" ".iteration // 0"
 }
 
-# Get plan review max iterations (config takes precedence over state file)
+# Get plan review max iterations
 get_plan_review_max() {
-  # Always prefer config value - it may have been updated
   get_plan_review_limit
 }
 

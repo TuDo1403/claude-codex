@@ -173,7 +173,6 @@ claude-codex/
 │       ├── hooks/                # Ralph Loop hooks
 │       ├── docs/                 # Standards and workflow
 │       ├── .task.template/       # Task directory template
-│       ├── pipeline.config.json
 │       ├── CLAUDE.md
 │       └── AGENTS.md
 └── README.md
@@ -187,30 +186,15 @@ claude-codex/
 
 > **Note:** This plugin works on Windows, macOS, and Linux. All shell scripts use Bun for JSON processing instead of `jq`, ensuring cross-platform compatibility out of the box.
 
-## Configuration
+## Default Settings
 
-The plugin includes `pipeline.config.json` with these settings:
+The pipeline uses these hardcoded defaults:
 
-| Setting                             | Description                                   | Default           |
-| ----------------------------------- | --------------------------------------------- | ----------------- |
-| `autonomy.mode`                     | `autonomous`, `semi-autonomous`, `supervised` | `semi-autonomous` |
-| `autonomy.planReviewLoopLimit`      | Max plan review iterations                    | `10`              |
-| `autonomy.codeReviewLoopLimit`      | Max code review iterations                    | `15`              |
-| `errorHandling.autoResolveAttempts` | Retries before pausing                        | `3`               |
-
-### Per-Project Overrides
-
-Create `pipeline.config.local.json` in your project directory to override settings:
-
-```json
-{
-  "autonomy": {
-    "codeReviewLoopLimit": 20
-  }
-}
-```
-
-Config priority: project-local > plugin-local > plugin-base
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Plan review loop limit | 10 | Max iterations for plan reviews |
+| Code review loop limit | 15 | Max iterations for code reviews |
+| Auto-resolve attempts | 3 | Retries before pausing on errors |
 
 ## Creating Your Own Plugin
 
