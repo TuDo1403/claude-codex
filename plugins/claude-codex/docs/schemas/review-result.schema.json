@@ -51,7 +51,7 @@
             "type": "string"
           }
         },
-        "required": ["id", "severity", "category", "file", "message", "suggestion"],
+        "required": ["id", "severity", "category", "file", "line", "message", "suggestion"],
         "additionalProperties": false
       }
     },
@@ -125,7 +125,11 @@
         "resource_management",
         "configuration",
         "code_quality",
+        "concurrency",
         "logging",
+        "dependencies",
+        "api_design",
+        "backward_compatibility",
         "testing",
         "over_engineering"
       ],
