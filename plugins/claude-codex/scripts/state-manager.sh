@@ -381,7 +381,7 @@ validate_plan_reviews() {
       done
     fi
     echo ""
-    echo "Run plan reviews using Task tool (plan-reviewer agent) and /review-codex"
+    echo "Run plan reviews using Task tool (plan-reviewer agent and codex-reviewer agent)"
     echo "All must return status: approved before implementation."
     echo ""
     return 1

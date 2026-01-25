@@ -178,10 +178,9 @@ Workers communicate via `.task/worker-signal.json`:
 | Skill | Purpose | Phase |
 |-------|---------|-------|
 | `/multi-ai` | Start pipeline (entry point) | All |
-| `/review-codex` | Final review (Codex CLI) | Review |
 | `/cancel-loop` | Cancel active ralph loop | Emergency |
 
-**Note:** Requirements gathering, planning, review (sonnet/opus), and implementation are handled by custom agents via Task tool. Codex review uses the `/review-codex` skill for proper CLI invocation.
+**Note:** Requirements gathering, planning, review (sonnet/opus), and implementation are handled by custom agents via Task tool. Codex final gate review uses the `codex-reviewer` agent via `Task(subagent_type: "claude-codex:codex-reviewer", model: "external")`.
 
 ---
 

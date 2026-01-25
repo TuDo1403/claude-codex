@@ -9,7 +9,7 @@
  * In the multi-session orchestrator architecture with task-based enforcement:
  * - Pipeline tasks are tracked via TaskCreate/TaskUpdate/TaskList tools
  * - Reviews are enforced via blockedBy dependencies
- * - Codex review is done via /review-codex skill
+ * - Codex review is done via codex-reviewer agent (Task-based)
  */
 
 const fs = require('fs');

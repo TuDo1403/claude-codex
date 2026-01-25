@@ -189,7 +189,6 @@ run_dry_run() {
   local skills_dir="$PLUGIN_ROOT/skills"
   local required_skills=(
     "multi-ai/SKILL.md"
-    "review-codex/SKILL.md"
     "cancel-loop/SKILL.md"
   )
   local skills_ok=1
@@ -215,6 +214,7 @@ run_dry_run() {
     "plan-reviewer.md"
     "implementer.md"
     "code-reviewer.md"
+    "codex-reviewer.md"
   )
   local agents_ok=1
   if [[ -d "$agents_dir" ]]; then
@@ -370,7 +370,7 @@ show_next_action() {
       echo "     If needs_changes: resume planner to fix, then continue to step 2"
       echo "  2. Task(plan-reviewer, opus) → $TASK_DIR/review-opus.json"
       echo "     If needs_changes: resume planner to fix, then continue to step 3"
-      echo "  3. /review-codex (Codex final gate) → $TASK_DIR/review-codex.json"
+      echo "  3. Task(codex-reviewer, external) (Codex final gate) → $TASK_DIR/review-codex.json"
       echo "     If needs_changes: resume planner to fix, restart from step 1"
       echo "     If approved: transition to implementing"
       echo ""
@@ -405,7 +405,7 @@ show_next_action() {
       echo "     If needs_changes: resume implementer to fix, then continue to step 2"
       echo "  2. Task(code-reviewer, opus) → $TASK_DIR/review-opus.json"
       echo "     If needs_changes: resume implementer to fix, then continue to step 3"
-      echo "  3. /review-codex (Codex final gate) → $TASK_DIR/review-codex.json"
+      echo "  3. Task(codex-reviewer, external) (Codex final gate) → $TASK_DIR/review-codex.json"
       echo "     If needs_changes: resume implementer to fix, restart from step 1"
       echo "     If approved: transition to complete"
       echo ""

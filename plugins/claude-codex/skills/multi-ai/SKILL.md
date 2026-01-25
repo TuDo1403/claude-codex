@@ -34,7 +34,7 @@ ORCHESTRATOR (This Session)
     |       +-- TaskCreate with blockedBy dependencies
     |       +-- Task(plan-reviewer, sonnet)  -> review-sonnet.json
     |       +-- Task(plan-reviewer, opus)    -> review-opus.json
-    |       +-- Skill(review-codex)          -> review-codex.json  <- FINAL GATE
+    |       +-- Task(codex-reviewer, external)  -> review-codex.json  <- FINAL GATE
     |
     +-- Phase 4: Implementation [Task + Resume]
     |       +-- implementer agent (sonnet)
@@ -45,7 +45,7 @@ ORCHESTRATOR (This Session)
             +-- TaskCreate with blockedBy dependencies
             +-- Task(code-reviewer, sonnet)  -> review-sonnet.json
             +-- Task(code-reviewer, opus)    -> review-opus.json
-            +-- Skill(review-codex)          -> review-codex.json  <- FINAL GATE
+            +-- Task(codex-reviewer, external)  -> review-codex.json  <- FINAL GATE
 ```
 
 ---
@@ -58,7 +58,7 @@ ORCHESTRATOR (This Session)
 4. **Resume workers** when they need continued context
 5. **Monitor signals** by reading `.task/worker-signal.json`
 6. **Handle questions** via AskUserQuestion, then resume workers
-7. **Invoke Codex** via `/review-codex` skill for final approvals
+7. **Invoke Codex** via `Task(subagent_type: "claude-codex:codex-reviewer")` for final approvals
 8. **Handle review failures** by creating fix tasks dynamically
 
 ---
@@ -270,7 +270,12 @@ Task(
 
 #### "Plan Review - Codex"
 ```
-Skill(review-codex)
+Read: ${CLAUDE_PLUGIN_ROOT}/agents/codex-reviewer.md
+Task(
+  subagent_type: "claude-codex:codex-reviewer",
+  model: "external",
+  prompt: "[Agent prompt content] Review plan in .task/plan-refined.json. Write result to .task/review-codex.json"
+)
 ```
 **Expected output:** `.task/review-codex.json`
 
@@ -348,7 +353,12 @@ Task(
 
 #### "Code Review - Codex"
 ```
-Skill(review-codex)
+Read: ${CLAUDE_PLUGIN_ROOT}/agents/codex-reviewer.md
+Task(
+  subagent_type: "claude-codex:codex-reviewer",
+  model: "external",
+  prompt: "[Agent prompt content] Review implementation in .task/impl-result.json. Write result to .task/review-codex.json"
+)
 ```
 **Expected output:** `.task/review-codex.json`
 
@@ -589,7 +599,7 @@ Report to user:
 8. **Review before test**: Always run reviews first, then tests
 9. **Accept all feedback**: No debate with reviewers, just fix
 10. **Resume for context**: Use resume to preserve worker memory across iterations
-11. **NEVER run Codex via Bash**: Always use `Skill(review-codex)`
+11. **NEVER run Codex via Bash directly**: Always use `Task(subagent_type: "claude-codex:codex-reviewer", model: "external")` which invokes Codex via the codex-reviewer agent
 12. **MANDATORY Codex gate**: Pipeline is NOT complete without Codex approval
 
 ---
@@ -658,8 +668,8 @@ If stuck:
 | Planning | planner | **opus** | Comprehensive codebase research |
 | Plan Review #1 | plan-reviewer | sonnet | Quick quality check |
 | Plan Review #2 | plan-reviewer | opus | Deep architectural analysis |
-| Plan Review #3 | **Codex** | external | Independent final gate |
+| Plan Review #3 | codex-reviewer | external | Independent final gate |
 | Implementation | implementer | sonnet | Balanced speed/quality |
 | Code Review #1 | code-reviewer | sonnet | Quick code check |
 | Code Review #2 | code-reviewer | opus | Deep code analysis |
-| Code Review #3 | **Codex** | external | Independent final gate |
+| Code Review #3 | codex-reviewer | external | Independent final gate |

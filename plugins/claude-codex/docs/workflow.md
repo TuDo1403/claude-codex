@@ -7,7 +7,7 @@ This pipeline uses a **Task + Resume architecture** with custom agents:
 - **Orchestrator (Main Session)** = Coordinates worker agents via Task tool
 - **Worker Agents** = Specialized agents defined in `agents/` directory
 - **Resume Capability** = Workers can be resumed with preserved context
-- **Codex** = Final review via `/review-codex` skill (invokes Codex CLI)
+- **Codex** = Final review via `codex-reviewer` agent (invokes Codex CLI)
 
 ### Key Principle: Autonomous After Requirements
 
@@ -25,13 +25,13 @@ Once the user approves requirements:
 | `plan-reviewer` | sonnet/opus | Architecture + Security + QA | Plan Review |
 | `implementer` | sonnet | Fullstack + TDD + Quality | Implementation |
 | `code-reviewer` | sonnet/opus | Security + Performance + QA | Code Review |
+| `codex-reviewer` | external | Final gate (invokes Codex CLI) | Final Review |
 
 ### Skills
 
 | Skill | Purpose | Phase |
 |-------|---------|-------|
 | `/multi-ai` | Pipeline entry point | All |
-| `/review-codex` | Final review (Codex CLI) | Review |
 | `/cancel-loop` | Cancel active ralph loop | Emergency |
 
 ---
@@ -102,7 +102,7 @@ plan_reviewing
   | AUTOMATED review loop:
   |   1. Task(plan-reviewer, sonnet) -> review-sonnet.json
   |   2. Task(plan-reviewer, opus)   -> review-opus.json
-  |   3. Skill(review-codex)         -> review-codex.json <- GATE
+  |   3. Task(codex-reviewer, external)         -> review-codex.json <- GATE
   |   Loop until all approved (resume planner for fixes)
   | [all approved]
 implementing
@@ -113,7 +113,7 @@ implementing
    - If needs_changes: resume planner to fix, continue
 2. **Opus review** - Task(plan-reviewer, model: opus)
    - If needs_changes: resume planner to fix, continue
-3. **Codex review** - Skill(review-codex) - FINAL GATE
+3. **Codex review** - Task(codex-reviewer, external) - FINAL GATE
    - If approved: proceed to implementation
    - If needs_changes: resume planner, restart from sonnet
 
@@ -127,7 +127,7 @@ implementing_loop
   |   1. Implement/fix code (resume implementer)
   |   2. Task(code-reviewer, sonnet) -> review-sonnet.json
   |   3. Task(code-reviewer, opus)   -> review-opus.json
-  |   4. Skill(review-codex)         -> review-codex.json <- GATE
+  |   4. Task(codex-reviewer, external)         -> review-codex.json <- GATE
   |   5. Run tests from plan
   |   Loop until all approved + tests pass
   | [complete]
@@ -140,7 +140,7 @@ complete
 3. **Automated Review + Test Loop** (no user pauses):
    - Task(code-reviewer, sonnet) -> If issues, resume implementer
    - Task(code-reviewer, opus) -> If issues, resume implementer
-   - Skill(review-codex) -> Final gate
+   - Task(codex-reviewer, external) -> Final gate
    - Run test commands from plan
    - Loop until all pass
 
@@ -223,7 +223,7 @@ WHILE LOOP_COUNT < MAX_LOOPS:
        READ .task/review-opus.json
        IF needs_changes: RESUME worker to FIX
 
-    3. INVOKE Skill(review-codex)
+    3. INVOKE Task(codex-reviewer, external)
        READ .task/review-codex.json
        IF approved: EXIT loop
        IF needs_changes: RESUME worker, INCREMENT LOOP_COUNT, RESTART
@@ -278,7 +278,7 @@ Input: .task/plan-refined.json
 After implementation, run SEQUENTIAL reviews using Task tool:
   1. Task(code-reviewer, sonnet) -> review-sonnet.json
   2. Task(code-reviewer, opus)   -> review-opus.json
-  3. /review-codex (Codex final gate)
+  3. Task(codex-reviewer, external) (Codex final gate)
 ```
 
 ### Commands
@@ -324,13 +324,13 @@ plan_refining (planner agent)
 plan_reviewing (AUTOMATED review loop)
   |   Task(plan-reviewer, sonnet) -> resume planner
   |   Task(plan-reviewer, opus)   -> resume planner
-  |   Skill(review-codex)         -> resume planner if needed
+  |   Task(codex-reviewer, external)         -> resume planner if needed
   |   Loop until approved (no user pauses)
   | [all approved]
 implementing / implementing_loop (implementer agent)
   |   Task(code-reviewer, sonnet) -> resume implementer
   |   Task(code-reviewer, opus)   -> resume implementer
-  |   Skill(review-codex)         -> resume implementer if needed
+  |   Task(codex-reviewer, external)         -> resume implementer if needed
   |   Run tests
   |   Loop until approved + tests pass (no user pauses)
   | [all approved + tests pass]
@@ -419,7 +419,7 @@ Each reviewer outputs to its designated file:
 |------|----------|-------|
 | `.task/review-sonnet.json` | plan-reviewer/code-reviewer | sonnet |
 | `.task/review-opus.json` | plan-reviewer/code-reviewer | opus |
-| `.task/review-codex.json` | /review-codex skill | codex |
+| `.task/review-codex.json` | codex-reviewer agent | codex |
 
 Format:
 ```json
@@ -523,8 +523,8 @@ Checks:
 - `state.json` valid
 - `pipeline.config.json` valid
 - Required scripts executable
-- Required skills exist (multi-ai, review-codex, cancel-loop)
-- Required agents exist (5 agents)
+- Required skills exist (multi-ai, cancel-loop)
+- Required agents exist (6 agents including codex-reviewer)
 - Required docs exist
 - `.task` in `.gitignore`
 - CLI tools available
