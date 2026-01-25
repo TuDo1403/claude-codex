@@ -328,6 +328,25 @@ Task(
 ```
 **Expected output:** `.task/impl-result.json`
 
+**After implementer completes, check impl-result.json:**
+
+Note: Store the implementer's agent_id from the Task result for potential resume.
+
+1. IF status == "complete":
+   - TaskUpdate(task.id, status: "completed")
+   - Continue to code reviews
+2. IF status == "partial":
+   - Read `blocked_reason` from impl-result.json
+   - **Categorize the blocker:**
+     - **True blockers (ask user):** missing credentials/secrets, conflicting requirements, external dependency unavailable, ambiguous security decision with significant implications
+       → AskUserQuestion with the blocked reason, then resume with answer
+     - **Default (auto-continue):** Any other reason including continuation questions
+       → Resume implementer immediately: `Task(resume: implementer_agent_id, model: "sonnet", prompt: "Continue. Complete ALL remaining steps.")`
+   - Loop back to check impl-result.json again
+3. IF status == "failed":
+   - Report failure to user
+   - Do NOT mark task complete - ask user how to proceed
+
 #### "Code Review - Sonnet"
 ```
 # State remains implementing_loop during code reviews
@@ -608,7 +627,7 @@ CHECKLIST (all must be true):
 [ ] .task/user-story.json exists
 [ ] .task/plan-refined.json exists
 [ ] Final plan review has status == "approved"
-[ ] .task/impl-result.json exists AND status == "completed"
+[ ] .task/impl-result.json exists AND status == "complete"
 [ ] Final code review has status == "approved"
 [ ] All test commands passed
 ```
