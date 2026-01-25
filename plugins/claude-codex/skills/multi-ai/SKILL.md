@@ -391,6 +391,31 @@ Task(
      TaskUpdate(task.id, status: "completed", metadata: {result: "needs_changes"})
      ```
    - **Continue main loop** (TaskList will return fix task as next unblocked)
+4. IF status == "rejected":
+   - Implementation is fundamentally flawed - requires significant rework
+   - Determine iteration: count existing "Rework" tasks + 1
+   - Create rework task (NOT minor fix):
+     ```
+     rework_id = TaskCreate(
+       subject: "Rework Implementation - Iteration {N}",
+       description: "Implementation REJECTED by Codex. Significant rework required.\n\nRejection: {review.summary}\n\nThis is NOT a minor fix - re-evaluate the approach.",
+       activeForm: "Reworking implementation"
+     )
+     ```
+   - Create re-review task:
+     ```
+     re_review_id = TaskCreate(
+       subject: "Code Review - Codex v{N+1}",
+       description: "Re-review after major rework. MANDATORY GATE.",
+       activeForm: "Re-running Codex code review"
+     )
+     TaskUpdate(re_review_id, addBlockedBy: [rework_id])
+     ```
+   - Mark current task completed:
+     ```
+     TaskUpdate(task.id, status: "completed", metadata: {result: "rejected"})
+     ```
+   - **Continue main loop** (TaskList will return rework task as next unblocked)
 
 #### "Fix [Phase] Issues - Iteration N" (Dynamic Fix Tasks)
 ```
@@ -488,6 +513,39 @@ ELSE IF review.status == "needs_clarification":
     AskUserQuestion(review.questions)
     # Resume appropriate agent with answers
     # DO NOT mark task complete yet - wait for re-review
+
+ELSE IF review.status == "rejected":
+    # Code review only - implementation is fundamentally flawed
+    # Treat as critical needs_changes requiring significant rework
+
+    # 1. Determine iteration number
+    existing_rework_tasks = TaskList() filtered by subject containing "Rework"
+    iteration = len(existing_rework_tasks) + 1
+
+    # 2. Create rework task (NOT minor fix - emphasize major rework needed)
+    rework_task_id = TaskCreate(
+        subject: "Rework Implementation - Iteration {iteration}",
+        description: "Implementation REJECTED. Significant rework required.\n\nRejection: {review.summary}\n\nThis is NOT a minor fix - re-evaluate the approach.",
+        activeForm: "Reworking implementation"
+    )
+
+    # 3. Block next reviewer in sequence (just like needs_changes)
+    # This prevents subsequent reviewers from proceeding on rejected code
+    IF task is "Code Review - Sonnet":
+        TaskUpdate(code_review_opus_id, addBlockedBy: [rework_task_id])
+    ELSE IF task is "Code Review - Opus":
+        TaskUpdate(code_review_codex_id, addBlockedBy: [rework_task_id])
+    ELSE IF task is "Code Review - Codex":
+        # Codex rejected - create re-review task
+        re_review_id = TaskCreate(
+            subject: "Code Review - Codex v{iteration+1}",
+            description: "Re-review after major rework. MANDATORY GATE.",
+            activeForm: "Re-running Codex code review"
+        )
+        TaskUpdate(re_review_id, addBlockedBy: [rework_task_id])
+
+    # 4. Mark current review as completed with rejected metadata
+    TaskUpdate(task.id, status: "completed", metadata: {result: "rejected", iteration: iteration})
 ```
 
 ---
