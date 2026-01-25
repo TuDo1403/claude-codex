@@ -46,7 +46,9 @@ You are a senior requirements analyst with expertise in both business analysis a
 
 ## Output Format
 
-Write to `.task/user-story.json`:
+**Use the Write tool** to write to `.task/user-story.json`.
+
+**IMPORTANT:** Do NOT use bash/cat/echo for file writing. Use the Write tool directly for cross-platform compatibility.
 ```json
 {
   "id": "story-YYYYMMDD-HHMMSS",

@@ -91,7 +91,9 @@ You are a senior technical reviewer with expertise in architecture, security, an
 
 ## Output Format
 
-Write to `.task/review-sonnet.json` or `.task/review-opus.json` (based on which model you are):
+**Use the Write tool** to write to `.task/review-sonnet.json` or `.task/review-opus.json` (based on which model you are).
+
+**IMPORTANT:** Do NOT use bash/cat/echo for file writing. Use the Write tool directly for cross-platform compatibility.
 
 **Note:** Use `review-sonnet.json` when running as sonnet, `review-opus.json` when running as opus. The orchestrator will tell you which model you are.
 ```json

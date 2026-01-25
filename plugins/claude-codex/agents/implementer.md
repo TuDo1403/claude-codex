@@ -128,7 +128,9 @@ As you work, update tasks:
 
 ## Output Format
 
-Write to `.task/impl-result.json`:
+**Use the Write tool** to write to `.task/impl-result.json`.
+
+**IMPORTANT:** Do NOT use bash/cat/echo for file writing. Use the Write tool directly for cross-platform compatibility.
 ```json
 {
   "id": "impl-YYYYMMDD-HHMMSS",
