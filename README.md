@@ -66,24 +66,18 @@ After installation, use skills with the plugin namespace:
 ```bash
 # Start the full pipeline
 /claude-codex:multi-ai Add user authentication with JWT
-
-# Emergency controls
-/claude-codex:cancel-loop    # Stop an active Ralph Loop
-/claude-codex:review-codex   # Manual Codex review (usually automatic)
 ```
 
 ## Available Plugins
 
 ### claude-codex
 
-Multi-AI orchestration pipeline with **TDD-driven Ralph Loop** using Task + Resume architecture.
+Multi-AI orchestration pipeline with **hook-based enforcement** using Task + Resume architecture.
 **Skills:**
 
 | Skill          | Purpose                                     |
 | -------------- | ------------------------------------------- |
 | `multi-ai`     | Pipeline entry point (orchestrates agents)  |
-| `review-codex` | Final review via OpenAI Codex (gate)        |
-| `cancel-loop`  | Emergency stop for Ralph Loop               |
 
 **Custom Agents:**
 
@@ -119,35 +113,35 @@ This command orchestrates specialized agents:
 5. **Code Reviews** (autonomous) - `code-reviewer` agents (sonnet, opus) + Codex gate
 6. **Complete** - Reports results
 
-### Ralph Loop: TDD-Driven Implementation
+### Task-Based Pipeline Enforcement
 
-The implementation phase uses the **Ralph Wiggum technique** with Task + Resume:
+The pipeline uses **task dependencies** and **hook validation** (v1.3.0):
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  RALPH LOOP (until max iterations)                  │
+│  SEQUENTIAL REVIEWS (enforced via blockedBy)        │
 │  ┌──────────────────────────────────────────────┐  │
-│  │ 1. Implement/fix code (implementer agent)    │  │
-│  │ 2. Code review (sonnet) - Task tool          │  │
-│  │ 3. Code review (opus) - Task tool            │  │
-│  │ 4. Code review (codex) - Skill tool          │  │
-│  │ 5. Run tests from plan                       │  │
+│  │ 1. Implement code (implementer agent)        │  │
+│  │ 2. Code review (sonnet) - blocked until impl │  │
+│  │ 3. Code review (opus) - blocked until sonnet │  │
+│  │ 4. Code review (codex) - blocked until opus  │  │
 │  │                                              │  │
-│  │ IF all reviews pass AND tests pass           │  │
-│  │    → EXIT with completion promise            │  │
-│  │ ELSE                                         │  │
-│  │    → RESUME implementer with feedback        │  │
+│  │ IF review needs_changes                      │  │
+│  │    → Create fix task + re-review task        │  │
+│  │    → Same reviewer validates fixes           │  │
+│  │                                              │  │
+│  │ IF all reviews approved                      │  │
+│  │    → Pipeline complete                       │  │
 │  └──────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────┘
 ```
 
 **Key benefits:**
 
-- **Context preservation** - Resume workers with full conversation history
-- **TDD completion** - Tests define "done"
-- **Multi-AI review** - Three independent reviewers each iteration
-- **Safety limits** - Max iterations prevents infinite loops
-- **Cancel anytime** - `/cancel-loop` for emergency stop
+- **Hook enforcement** - SubagentStop validates acceptance criteria coverage
+- **Task dependencies** - `blockedBy` prevents skipping reviews
+- **Same-reviewer validation** - Fixes are validated by the reviewer who requested them
+- **Clarification support** - Reviewers can request clarification via `needs_clarification` status
 
 ## Marketplace Structure
 
@@ -166,11 +160,9 @@ claude-codex/
 │       │   ├── implementer.md
 │       │   └── code-reviewer.md
 │       ├── skills/               # Pipeline skills
-│       │   ├── multi-ai/         # Main orchestrator
-│       │   ├── review-codex/     # Codex final gate
-│       │   └── cancel-loop/      # Emergency stop
+│       │   └── multi-ai/         # Main orchestrator
 │       ├── scripts/              # Orchestration scripts
-│       ├── hooks/                # Ralph Loop hooks
+│       ├── hooks/                # Pipeline enforcement hooks
 │       ├── docs/                 # Standards and workflow
 │       ├── .task.template/       # Task directory template
 │       ├── CLAUDE.md
