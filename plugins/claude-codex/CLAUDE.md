@@ -40,7 +40,7 @@ Multi-Session Orchestrator Pipeline (Task-Based Enforcement)
   |     +-- Task: "Plan Review - Codex" (blockedBy: opus) <- FINAL GATE
   |     -> .task/review-*.json
   |
-  +-- Phase 4: Implementation (RALPH LOOP)
+  +-- Phase 4: Implementation
   |     +-- Task: "Implementation" (blockedBy: codex-plan-review)
   |     +-- implementer agent (sonnet)
   |     +-- Resume for iterative fixes
@@ -94,10 +94,12 @@ T9: Code Review - Codex          (blockedBy: [T8])   <- GATE
 When a review returns `needs_changes`, the orchestrator:
 
 1. Creates a fix task: `"Fix [Phase] Issues - Iteration N"`
-2. Updates the next reviewer's `blockedBy` to include the fix task
-3. Marks the current review as completed with `metadata: {result: "needs_changes"}`
+2. Creates a RE-REVIEW task for the SAME reviewer (blocked by fix task)
+3. Updates the NEXT reviewer's `blockedBy` to include the re-review task (not the fix task)
+4. Marks the current review as completed with `metadata: {result: "needs_changes"}`
+5. After max 3 re-reviews per reviewer, escalates to user
 
-This maintains the sequential requirement: fixes must complete before the next reviewer runs.
+This maintains the sequential requirement and ensures the same reviewer validates fixes before proceeding.
 
 ---
 
@@ -112,7 +114,7 @@ The pipeline will:
 2. **Gather requirements** (interactive) - Custom agent with Business Analyst + PM expertise
 3. **Plan** (semi-interactive) - Custom agent with Architect expertise
 4. **Review plan** (task-enforced) - Sequential: Sonnet → Opus → Codex gate
-5. **Implement** (ralph loop) - Iterates until tests pass + reviews approve
+5. **Implement** - Iterates until reviews approve
 6. **Review code** (task-enforced) - Sequential: Sonnet → Opus → Codex gate
 7. **Complete** - Report results
 
@@ -141,7 +143,6 @@ See `AGENTS.md` for detailed agent specifications.
 Workers can be resumed with preserved context:
 - **Resume for context** - Maintains conversation history across iterations
 - **Fresh analysis** - Reviews start fresh for unbiased perspective
-- **Signal protocol** - Workers communicate needs via `.task/worker-signal.json`
 
 ### Task-Based Sequential Enforcement
 
@@ -157,20 +158,6 @@ Codex (independent AI) provides final approval:
 - Not "Claude reviewing Claude"
 - Required before implementation can start
 
-### Worker Signal Protocol
-
-Workers communicate via `.task/worker-signal.json`:
-
-```json
-{
-  "worker_id": "phase-timestamp-random",
-  "phase": "requirements|planning|implementation",
-  "status": "needs_input|completed|error|in_progress",
-  "questions": [...],
-  "agent_id": "for_resume"
-}
-```
-
 ---
 
 ## Skills
@@ -178,54 +165,29 @@ Workers communicate via `.task/worker-signal.json`:
 | Skill | Purpose | Phase |
 |-------|---------|-------|
 | `/multi-ai` | Start pipeline (entry point) | All |
-| `/cancel-loop` | Cancel active ralph loop | Emergency |
 
 **Note:** Requirements gathering, planning, review (sonnet/opus), and implementation are handled by custom agents via Task tool. Codex final gate review uses the `codex-reviewer` agent via `Task(subagent_type: "claude-codex:codex-reviewer", model: "external")`.
 
 ---
 
-## Implementation Modes
+## Hook Enforcement
 
-### Simple Mode
-For small, straightforward changes:
-- Single implementation pass
-- One review cycle
-- Tests run once
+Pipeline enforcement uses two hooks:
 
-### Ralph Loop Mode (Default)
-For features requiring iteration:
-- Implementer agent resumed for fixes
-- Reviews + tests run each iteration
-- Loops until ALL pass:
-  - Sonnet review: approved
-  - Opus review: approved
-  - Codex review: approved
-  - All test commands: exit code 0
+### UserPromptSubmit Hook (Guidance)
+- **File:** `hooks/guidance-hook.js`
+- **Purpose:** Reads `.task/*.json` files to determine phase, injects advisory guidance
+- **No state tracking:** Phase is implicit from which artifact files exist
 
----
+### SubagentStop Hook (Enforcement)
+- **File:** `hooks/review-validator.js`
+- **Purpose:** Validates reviewer outputs when agents finish
+- **Can block:** Returns `{"decision": "block", "reason": "..."}` if:
+  - Review doesn't verify all acceptance criteria
+  - Review approves with unimplemented ACs
+  - `needs_changes` without fix/re-review tasks created
 
-## State Machine
-
-```
-idle
-  |
-requirements_gathering (requirements-gatherer agent)
-  | [approved]
-plan_drafting
-  |
-plan_refining (planner agent)
-  | [conflicts? -> ask user]
-plan_reviewing (task-enforced: sonnet -> opus -> codex)
-  | [all approved]
-implementing (simple) OR implementing_loop (ralph)
-  |
-  | [ralph loop mode]
-  |  +-- implement -> review -> test
-  |  |   IF all pass -> exit
-  |  |   ELSE -> resume implementer, loop
-  |
-complete
-```
+Max 10 re-reviews per reviewer before escalating to user.
 
 ---
 
@@ -240,7 +202,7 @@ complete
   "acceptance_criteria": [...],
   "scope": {...},
   "test_criteria": {...},
-  "implementation": { "mode": "ralph-loop", "max_iterations": 10 }
+  "implementation": { "max_iterations": 10 }
 }
 ```
 
@@ -272,38 +234,24 @@ complete
 }
 ```
 
-### Loop State (`.task/loop-state.json`)
-```json
-{
-  "active": true,
-  "iteration": 0,
-  "max_iterations": 10,
-  "implementer_agent_id": "for-resume",
-  "started_at": "ISO8601"
-}
-```
-
 ---
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `state-manager.sh` | Manage pipeline state |
-| `orchestrator.sh` | Initialize/reset pipeline |
+| `orchestrator.sh` | Initialize/reset pipeline, show status |
 | `json-tool.ts` | Cross-platform JSON operations |
-| `worker-protocol.ts` | Worker signal management |
 
 ---
 
 ## Emergency Controls
 
-If the loop is stuck:
+If stuck:
 
-1. **Cancel command:** `/cancel-loop`
-2. **Check task state:** `TaskList()` to see blocked tasks
-3. **Delete state file:** `rm .task/loop-state.json`
-4. **Max iterations:** Loop auto-stops at limit
+1. **Check task state:** `TaskList()` to see blocked tasks
+2. **Check artifacts:** Read `.task/*.json` files to understand progress
+3. **Reset pipeline:** `"${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" reset`
 
 ---
 

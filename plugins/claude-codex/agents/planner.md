@@ -72,7 +72,6 @@ You are a senior software architect with expertise in system design, architectur
     ]
   },
   "implementation": {
-    "mode": "ralph-loop|simple",
     "max_iterations": 10
   },
   "steps": [

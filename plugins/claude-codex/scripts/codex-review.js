@@ -29,8 +29,16 @@ const os = require('os');
 
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TASK_DIR = '.task';
-const OUTPUT_FILE = path.join(TASK_DIR, 'review-codex.json');
 const STDERR_FILE = path.join(TASK_DIR, 'codex_stderr.log');
+
+// Output file depends on review type (plan vs code)
+function getOutputFile(reviewType) {
+  // Plan reviews: review-codex.json
+  // Code reviews: code-review-codex.json (to match pipeline conventions)
+  return reviewType === 'code'
+    ? path.join(TASK_DIR, 'code-review-codex.json')
+    : path.join(TASK_DIR, 'review-codex.json');
+}
 
 // Session markers are scoped by review type to prevent cross-contamination
 function getSessionMarker(reviewType) {
@@ -102,8 +110,9 @@ function writeJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-function writeError(error, phase) {
-  writeJson(OUTPUT_FILE, {
+function writeError(error, phase, reviewType) {
+  const outputFile = getOutputFile(reviewType || 'plan');
+  writeJson(outputFile, {
     status: 'error',
     error: error,
     phase: phase,
@@ -220,13 +229,14 @@ function buildCodexCommand(args, isResume) {
     reviewPrompt = `Review ${inputFile} against ${standardsPath}. Final gate review for ${args.type === 'plan' ? 'plan approval' : 'code quality'}. If unclear, set needs_clarification: true.`;
   }
 
-  // Build command args
+  // Build command args - output file depends on review type
+  const outputFile = getOutputFile(args.type);
   const cmdArgs = [
     'exec',
     '--full-auto',
     '--skip-git-repo-check',
     '--output-schema', schemaPath,
-    '-o', OUTPUT_FILE
+    '-o', outputFile
   ];
 
   // Add resume flag if resuming
@@ -330,11 +340,12 @@ function runCodex(cmdConfig) {
 // ================== OUTPUT VALIDATION ==================
 
 function validateOutput(reviewType) {
-  if (!fileExists(OUTPUT_FILE)) {
+  const outputFile = getOutputFile(reviewType);
+  if (!fileExists(outputFile)) {
     return { valid: false, error: 'Output file not created' };
   }
 
-  const output = readJson(OUTPUT_FILE);
+  const output = readJson(outputFile);
   if (!output) {
     return { valid: false, error: 'Output is not valid JSON' };
   }
@@ -343,12 +354,8 @@ function validateOutput(reviewType) {
     return { valid: false, error: 'Output missing "status" field' };
   }
 
-  // Valid statuses differ by review type (per schema)
-  // Plan: approved, needs_changes
-  // Code: approved, needs_changes, rejected
-  const validStatuses = reviewType === 'plan'
-    ? ['approved', 'needs_changes']
-    : ['approved', 'needs_changes', 'rejected'];
+  // Valid statuses (per updated schemas - both support all four)
+  const validStatuses = ['approved', 'needs_changes', 'needs_clarification', 'rejected'];
 
   if (!validStatuses.includes(output.status)) {
     return { valid: false, error: `Invalid status "${output.status}". Must be one of: ${validStatuses.join(', ')}` };
@@ -364,8 +371,12 @@ function validateOutput(reviewType) {
 
 // ================== MAIN ==================
 
+// Captured for error handling in catch block
+let currentReviewType = null;
+
 async function main() {
   const args = parseArgs();
+  currentReviewType = args.type; // Capture early for catch block
   const platform = getPlatform();
 
   // Determine if this is a resume (session active or --resume flag)
@@ -387,7 +398,7 @@ async function main() {
   const validationErrors = validateInputs(args);
   if (validationErrors.length > 0) {
     const errorMsg = validationErrors.join('; ');
-    writeError(errorMsg, 'input_validation');
+    writeError(errorMsg, 'input_validation', args.type);
     console.log(JSON.stringify({
       event: 'error',
       phase: 'input_validation',
@@ -445,7 +456,7 @@ async function main() {
         errorMsg = `Codex execution failed with exit code ${result.code}`;
     }
 
-    writeError(errorMsg, 'codex_execution');
+    writeError(errorMsg, 'codex_execution', args.type);
     console.log(JSON.stringify({
       event: 'error',
       phase: 'codex_execution',
@@ -459,7 +470,7 @@ async function main() {
   // Validate output (pass review type for correct status validation)
   const validation = validateOutput(args.type);
   if (!validation.valid) {
-    writeError(validation.error, 'output_validation');
+    writeError(validation.error, 'output_validation', args.type);
     console.log(JSON.stringify({
       event: 'error',
       phase: 'output_validation',
@@ -477,7 +488,7 @@ async function main() {
     status: validation.output.status,
     summary: validation.output.summary,
     needs_clarification: validation.output.needs_clarification || false,
-    output_file: OUTPUT_FILE,
+    output_file: getOutputFile(args.type),
     session_marker_created: true
   }));
 
@@ -485,7 +496,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  writeError(err.message, 'unexpected_error');
+  writeError(err.message, 'unexpected_error', currentReviewType);
   console.log(JSON.stringify({
     event: 'error',
     phase: 'unexpected_error',

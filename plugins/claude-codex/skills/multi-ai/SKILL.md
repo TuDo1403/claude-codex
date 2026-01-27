@@ -1,752 +1,397 @@
 ---
 name: multi-ai
-description: Start the multi-AI pipeline with TDD-driven ralph loop. Plan -> Review -> Implement (loop until tests pass + reviews approve).
+description: Start the multi-AI pipeline. Plan -> Review -> Implement (loop until reviews approve). Codex final gate.
 plugin-scoped: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Multi-AI Pipeline Orchestrator
 
-You coordinate worker agents using Task + Resume, handle their questions, and drive the pipeline to completion with Codex as final gate.
+You coordinate worker agents using Task tools, handle user questions, and drive the pipeline to completion with Codex as final gate.
 
-**Scripts location:** `${CLAUDE_PLUGIN_ROOT}/scripts/`
 **Task directory:** `${CLAUDE_PROJECT_DIR}/.task/`
 **Agents location:** `${CLAUDE_PLUGIN_ROOT}/agents/`
 
 ---
 
-## Architecture Overview
+## Architecture: Tasks + Hook Enforcement
 
-```
-ORCHESTRATOR (This Session)
-    |
-    +-- Phase 1: Requirements [Task + Resume]
-    |       +-- requirements-gatherer agent (opus)
-    |       +-- Resume for user Q&A iterations
-    |       -> Output: .task/user-story.json
-    |
-    +-- Phase 2: Planning [Task + Resume]
-    |       +-- planner agent (opus)
-    |       +-- Resume if reviews request changes
-    |       -> Output: .task/plan-refined.json
-    |
-    +-- Phase 3: Plan Reviews [Task-Based Sequential]
-    |       +-- TaskCreate with blockedBy dependencies
-    |       +-- Task(plan-reviewer, sonnet)  -> review-sonnet.json
-    |       +-- Task(plan-reviewer, opus)    -> review-opus.json
-    |       +-- Task(codex-reviewer, external)  -> review-codex.json  <- FINAL GATE
-    |
-    +-- Phase 4: Implementation [Task + Resume]
-    |       +-- implementer agent (sonnet)
-    |       +-- Resume for iterative fixes (Ralph Loop)
-    |       -> Output: .task/impl-result.json
-    |
-    +-- Phase 5: Code Reviews [Task-Based Sequential]
-            +-- TaskCreate with blockedBy dependencies
-            +-- Task(code-reviewer, sonnet)  -> review-sonnet.json
-            +-- Task(code-reviewer, opus)    -> review-opus.json
-            +-- Task(codex-reviewer, external)  -> review-codex.json  <- FINAL GATE
-```
+This pipeline uses a **task-based approach with hook enforcement**:
+
+| Component | Role |
+|-----------|------|
+| **Tasks** (primary) | Structural enforcement via `blockedBy`, user visibility, audit trail |
+| **UserPromptSubmit Hook** (guidance) | Reads artifact files, injects phase guidance |
+| **SubagentStop Hook** (enforcement) | Validates reviewer outputs, can BLOCK until requirements met |
+| **Main Thread** (orchestrator) | Handles user input, creates dynamic tasks, can restart/kick back |
+
+**Key insight:** `blockedBy` is *data*, not an instruction. `TaskList()` shows all tasks with their `blockedBy` fields - only claim tasks where blockedBy is empty or all dependencies are completed.
+
+**Enforcement insight:** SubagentStop hook validates reviews and can return `{"decision": "block", "reason": "..."}` to prevent invalid reviews from proceeding.
 
 ---
 
-## Your Responsibilities
+## Pipeline Initialization
 
-1. **Create task chain** at pipeline start with proper `blockedBy` dependencies
-2. **Execute task loop** - find next unblocked task, execute, validate, complete
-3. **Spawn workers** for each phase using the Task tool
-4. **Resume workers** when they need continued context
-5. **Monitor signals** by reading `.task/worker-signal.json`
-6. **Handle questions** via AskUserQuestion, then resume workers
-7. **Invoke Codex** via `Task(subagent_type: "claude-codex:codex-reviewer")` for final approvals
-8. **Handle review failures** by creating fix tasks dynamically
-
----
-
-## Phase 1: Pipeline Initialization
-
-### Step 1: Reset and Create Task Chain
+### Step 1: Reset Pipeline
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" reset
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set requirements_gathering ""
 ```
 
-**CRITICAL: Create the full pipeline task chain with dependencies:**
+### Step 2: Create Task Chain
+
+Create all pipeline tasks with dependencies. Store task IDs in `.task/pipeline-tasks.json`.
 
 ```
-# Create tasks in order - each returns a task ID
-# Store the user's original request for task descriptions
-
-TaskCreate(
-  subject: "Gather requirements",
-  description: "Use requirements-gatherer agent to clarify and document user requirements. Output: .task/user-story.json",
-  activeForm: "Gathering requirements"
-)
-# Store this ID as T_REQ
-
-TaskCreate(
-  subject: "Create implementation plan",
-  description: "Use planner agent to create detailed implementation plan. Input: .task/user-story.json. Output: .task/plan-refined.json",
-  activeForm: "Creating plan"
-)
-# Store this ID as T_PLAN
-# Then: TaskUpdate(T_PLAN, addBlockedBy: [T_REQ])
-
-TaskCreate(
-  subject: "Plan Review - Sonnet",
-  description: "Run Sonnet model review of the plan. Input: .task/plan-refined.json. Output: .task/review-sonnet.json",
-  activeForm: "Running Sonnet plan review"
-)
-# Store this ID as T_PLAN_SONNET
-# Then: TaskUpdate(T_PLAN_SONNET, addBlockedBy: [T_PLAN])
-
-TaskCreate(
-  subject: "Plan Review - Opus",
-  description: "Run Opus model review of the plan. Input: .task/plan-refined.json. Output: .task/review-opus.json",
-  activeForm: "Running Opus plan review"
-)
-# Store this ID as T_PLAN_OPUS
-# Then: TaskUpdate(T_PLAN_OPUS, addBlockedBy: [T_PLAN_SONNET])
-
-TaskCreate(
-  subject: "Plan Review - Codex",
-  description: "Run Codex final gate review of the plan. Input: .task/plan-refined.json. Output: .task/review-codex.json. MANDATORY GATE.",
-  activeForm: "Running Codex plan review"
-)
-# Store this ID as T_PLAN_CODEX
-# Then: TaskUpdate(T_PLAN_CODEX, addBlockedBy: [T_PLAN_OPUS])
-
-TaskCreate(
-  subject: "Implementation",
-  description: "Use implementer agent to implement the approved plan. Input: .task/plan-refined.json. Output: .task/impl-result.json",
-  activeForm: "Implementing"
-)
-# Store this ID as T_IMPL
-# Then: TaskUpdate(T_IMPL, addBlockedBy: [T_PLAN_CODEX])
-
-TaskCreate(
-  subject: "Code Review - Sonnet",
-  description: "Run Sonnet model review of the implementation. Input: .task/impl-result.json. Output: .task/review-sonnet.json",
-  activeForm: "Running Sonnet code review"
-)
-# Store this ID as T_CODE_SONNET
-# Then: TaskUpdate(T_CODE_SONNET, addBlockedBy: [T_IMPL])
-
-TaskCreate(
-  subject: "Code Review - Opus",
-  description: "Run Opus model review of the implementation. Input: .task/impl-result.json. Output: .task/review-opus.json",
-  activeForm: "Running Opus code review"
-)
-# Store this ID as T_CODE_OPUS
-# Then: TaskUpdate(T_CODE_OPUS, addBlockedBy: [T_CODE_SONNET])
-
-TaskCreate(
-  subject: "Code Review - Codex",
-  description: "Run Codex final gate review of the implementation. Input: .task/impl-result.json. Output: .task/review-codex.json. MANDATORY GATE.",
-  activeForm: "Running Codex code review"
-)
-# Store this ID as T_CODE_CODEX
-# Then: TaskUpdate(T_CODE_CODEX, addBlockedBy: [T_CODE_OPUS])
+TaskCreate: "Gather requirements"                    → T1 (blockedBy: [])
+TaskCreate: "Create implementation plan"            → T2 (blockedBy: [T1])
+TaskCreate: "Plan Review - Sonnet"                  → T3 (blockedBy: [T2])
+TaskCreate: "Plan Review - Opus"                    → T4 (blockedBy: [T3])
+TaskCreate: "Plan Review - Codex"                   → T5 (blockedBy: [T4])
+TaskCreate: "Implementation"                        → T6 (blockedBy: [T5])
+TaskCreate: "Code Review - Sonnet"                  → T7 (blockedBy: [T6])
+TaskCreate: "Code Review - Opus"                    → T8 (blockedBy: [T7])
+TaskCreate: "Code Review - Codex"                   → T9 (blockedBy: [T8])
 ```
 
-**Store task IDs mapping in `.task/pipeline-tasks.json`:**
+Save to `.task/pipeline-tasks.json`:
 ```json
 {
-  "requirements": "T_REQ_ID",
-  "plan": "T_PLAN_ID",
-  "plan_review_sonnet": "T_PLAN_SONNET_ID",
-  "plan_review_opus": "T_PLAN_OPUS_ID",
-  "plan_review_codex": "T_PLAN_CODEX_ID",
-  "implementation": "T_IMPL_ID",
-  "code_review_sonnet": "T_CODE_SONNET_ID",
-  "code_review_opus": "T_CODE_OPUS_ID",
-  "code_review_codex": "T_CODE_CODEX_ID"
+  "requirements": "T1-id",
+  "plan": "T2-id",
+  "plan_review_sonnet": "T3-id",
+  "plan_review_opus": "T4-id",
+  "plan_review_codex": "T5-id",
+  "implementation": "T6-id",
+  "code_review_sonnet": "T7-id",
+  "code_review_opus": "T8-id",
+  "code_review_codex": "T9-id"
 }
 ```
 
 ---
 
-## Phase 2: Main Execution Loop
+## Main Loop
 
-**CRITICAL: This is a DATA-DRIVEN loop. You MUST query TaskList() to find the next task.**
+Execute this data-driven loop until complete:
 
 ```
-MAIN_LOOP:
-    # Step 1: Query task list for current state
-    tasks = TaskList()
+while pipeline not complete:
+    1. TaskList() → find task where blockedBy is empty/resolved AND status is pending
+    2. TaskUpdate(task_id, status: "in_progress")
+    3. Execute task using appropriate agent (Task tool)
+    4. Check output file for result
+    5. Handle result (see Result Handling below)
+    6. TaskUpdate(task_id, status: "completed")
+    # Note: SubagentStop hook validates reviewer outputs and can block if invalid
+```
 
-    # Step 2: Find next executable task
-    next_task = find task where:
-      - status == "pending"
-      - blockedBy is empty OR all blockedBy tasks have status == "completed"
+### Result Handling
 
-    # Step 3: Check termination conditions
-    IF no next_task AND all tasks completed:
-        -> Pipeline COMPLETE, go to Phase 5
-    IF no next_task AND some tasks pending:
-        -> ERROR: Pipeline blocked (circular dependency or missing completion)
+**Review results:**
 
-    # Step 4: Mark task in progress
-    TaskUpdate(next_task.id, status: "in_progress")
+| Result | Action |
+|--------|--------|
+| `approved` | Continue to next task |
+| `needs_changes` | Create fix task + re-review task for SAME reviewer |
+| `rejected` (Codex plan) | Terminal state `plan_rejected` - ask user |
+| `rejected` (code review) | Create REWORK task + re-review for SAME reviewer |
+| `needs_clarification` | Read `clarification_questions`, answer directly if possible, otherwise use AskUserQuestion. After clarification, update review file and re-run SAME reviewer. |
 
-    # Step 5: Execute task based on subject
-    EXECUTE_TASK(next_task)
+**Implementation results:**
 
-    # Step 6: Validate output and handle result
-    VALIDATE_AND_COMPLETE(next_task)
+| Result | Action |
+|--------|--------|
+| `complete` | Continue to code review |
+| `partial` | Continue implementation (resume implementer agent) |
+| `partial` + true blocker | State `awaiting_user_decision` - ask user |
+| `failed` | Terminal state `implementation_failed` - ask user |
 
-    # Step 7: Loop back
-    GOTO MAIN_LOOP
+**True blockers** (require user input, cannot auto-continue):
+- Missing credentials/secrets/API keys
+- Conflicting requirements
+- External dependency unavailable
+- Security decision or authorization required
+
+**Severity:**
+- `needs_changes` = minor issues, fixable
+- `rejected` = fundamental problems, requires rework or user decision
+- `failed` = blocked, requires user intervention
+
+---
+
+## Dynamic Tasks (Same-Reviewer Re-Review)
+
+When a review returns `needs_changes` or `rejected`, the **same reviewer** must validate before proceeding.
+
+**Exception:** Codex plan `rejected` is terminal - no re-review, escalate to user immediately.
+
+### needs_changes → Fix Task
+
+Minor issues that can be addressed without major rework:
+
+```
+T3 (Sonnet) returns needs_changes:
+  Create: T3.1 "Fix Plan - Sonnet v1" (blockedBy: T3)
+  Create: T3.2 "Plan Review - Sonnet v2" (blockedBy: T3.1)
+  Update: T4 addBlockedBy: [T3.2]
+```
+
+### rejected → Rework Task (Code Reviews Only)
+
+Fundamental issues requiring significant changes:
+
+```
+T7 (Sonnet code review) returns rejected:
+  Create: T7.1 "Rework Code - Sonnet v1" (blockedBy: T7)
+  Create: T7.2 "Code Review - Sonnet v2" (blockedBy: T7.1)
+  Update: T8 addBlockedBy: [T7.2]
+```
+
+### rejected → Terminal (Codex Plan Review)
+
+Codex rejecting plan = fundamental approach issue:
+
+```
+T5 (Codex plan review) returns rejected:
+  → Terminal state: plan_rejected
+  → Ask user: restart requirements, revise plan, or abort
+```
+
+### Iteration Tracking
+
+Track iterations via dynamic task naming (v1, v2, v3...). After **10 re-reviews**, escalate to user.
+
+```
+fix_plan_sonnet_v1 → plan_review_sonnet_v2
+fix_plan_sonnet_v2 → plan_review_sonnet_v3
+...
 ```
 
 ---
 
-## Task Execution Reference
+## Agent Reference
 
-### EXECUTE_TASK(task)
+| Task | Agent | Model | Output File |
+|------|-------|-------|-------------|
+| Gather requirements | requirements-gatherer | opus | user-story.json |
+| Create plan | planner | opus | plan-refined.json |
+| Plan Review - Sonnet | plan-reviewer | sonnet | review-sonnet.json |
+| Plan Review - Opus | plan-reviewer | opus | review-opus.json |
+| Plan Review - Codex | codex-reviewer | external | review-codex.json |
+| Implementation | implementer | sonnet | impl-result.json |
+| Code Review - Sonnet | code-reviewer | sonnet | code-review-sonnet.json |
+| Code Review - Opus | code-reviewer | opus | code-review-opus.json |
+| Code Review - Codex | codex-reviewer | external | code-review-codex.json |
 
-Based on `task.subject`, execute the appropriate action.
+### Spawning Workers
 
-**IMPORTANT: Update state before executing each task type:**
-
-#### "Gather requirements"
-```bash
-# Update state FIRST
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set requirements_gathering ""
 ```
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/requirements-gatherer.md
 Task(
-  subagent_type: "general-purpose",
-  model: "opus",
-  prompt: "[Paste agent prompt] + User request: [original request]"
-)
-# Handle worker signals (needs_input -> AskUserQuestion -> Resume)
-```
-**Expected output:** `.task/user-story.json`
-
-#### "Create implementation plan"
-```bash
-# Update state FIRST
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_drafting ""
-```
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/planner.md
-Task(
-  subagent_type: "Plan",
-  model: "opus",
-  prompt: "[Paste agent prompt] + Context: .task/user-story.json"
-)
-# Handle risk assessment if needed
-```
-**Expected output:** `.task/plan-refined.json`
-
-#### "Plan Review - Sonnet"
-```bash
-# Update state FIRST (only on first plan review)
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set plan_reviewing ""
-```
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/plan-reviewer.md
-Task(
-  subagent_type: "claude-codex:plan-reviewer",
-  model: "sonnet",
-  prompt: "[Paste agent prompt] + Review .task/plan-refined.json against .task/user-story.json"
+  subagent_type: "claude-codex:<agent-name>",
+  model: "<model>",
+  prompt: "[Agent instructions] + [Context from .task/ files]"
 )
 ```
-**Expected output:** `.task/review-sonnet.json`
 
-#### "Plan Review - Opus"
+For Codex reviews:
 ```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/plan-reviewer.md
-Task(
-  subagent_type: "claude-codex:plan-reviewer",
-  model: "opus",
-  prompt: "[Paste agent prompt] + Review .task/plan-refined.json against .task/user-story.json"
-)
-```
-**Expected output:** `.task/review-opus.json`
-
-#### "Plan Review - Codex"
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/codex-reviewer.md
 Task(
   subagent_type: "claude-codex:codex-reviewer",
-  model: "external",
-  prompt: "[Agent prompt content] Review plan in .task/plan-refined.json. Write result to .task/review-codex.json"
+  prompt: "[Agent instructions] + Review [plan/code]"
 )
-```
-**Expected output:** `.task/review-codex.json`
-
-**After Skill completes, IMMEDIATELY:**
-1. Read `.task/review-codex.json`
-2. IF status == "approved":
-   - TaskUpdate(task.id, status: "completed", metadata: {result: "approved"})
-   - Continue main loop
-3. IF status == "needs_changes":
-   - Determine iteration: count existing "Fix Plan" tasks + 1
-   - Create fix task:
-     ```
-     fix_id = TaskCreate(
-       subject: "Fix Plan Issues - Iteration {N}",
-       description: "Address Codex feedback: {review.feedback}",
-       activeForm: "Fixing plan issues"
-     )
-     ```
-   - Create re-review task:
-     ```
-     re_review_id = TaskCreate(
-       subject: "Plan Review - Codex v{N+1}",
-       description: "Re-review plan after fixes. MANDATORY GATE.",
-       activeForm: "Re-running Codex plan review"
-     )
-     TaskUpdate(re_review_id, addBlockedBy: [fix_id])
-     ```
-   - Update Implementation task to wait for re-review:
-     ```
-     TaskUpdate(implementation_id, addBlockedBy: [re_review_id])
-     ```
-   - Mark current task completed:
-     ```
-     TaskUpdate(task.id, status: "completed", metadata: {result: "needs_changes"})
-     ```
-   - **Continue main loop** (TaskList will return fix task as next unblocked)
-
-#### "Implementation"
-```bash
-# Update state FIRST
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set implementing_loop ""
-```
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/implementer.md
-Task(
-  subagent_type: "general-purpose",
-  model: "sonnet",
-  prompt: "[Paste agent prompt] + Implement .task/plan-refined.json"
-)
-```
-**Expected output:** `.task/impl-result.json`
-
-**After implementer completes, check impl-result.json:**
-
-Note: Store the implementer's agent_id from the Task result for potential resume.
-
-1. IF status == "complete":
-   - TaskUpdate(task.id, status: "completed")
-   - Continue to code reviews
-2. IF status == "partial":
-   - Read `blocked_reason` from impl-result.json
-   - **Categorize the blocker:**
-     - **True blockers (ask user):** missing credentials/secrets, conflicting requirements, external dependency unavailable, ambiguous security decision with significant implications
-       → AskUserQuestion with the blocked reason, then resume with answer
-     - **Default (auto-continue):** Any other reason including continuation questions
-       → Resume implementer immediately: `Task(resume: implementer_agent_id, model: "sonnet", prompt: "Continue. Complete ALL remaining steps.")`
-   - Loop back to check impl-result.json again
-3. IF status == "failed":
-   - Report failure to user
-   - Do NOT mark task complete - ask user how to proceed
-
-#### "Code Review - Sonnet"
-```
-# State remains implementing_loop during code reviews
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md
-Task(
-  subagent_type: "claude-codex:code-reviewer",
-  model: "sonnet",
-  prompt: "[Paste agent prompt] + Review implementation against .task/plan-refined.json"
-)
-```
-**Expected output:** `.task/review-sonnet.json`
-
-#### "Code Review - Opus"
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md
-Task(
-  subagent_type: "claude-codex:code-reviewer",
-  model: "opus",
-  prompt: "[Paste agent prompt] + Review implementation against .task/plan-refined.json"
-)
-```
-**Expected output:** `.task/review-opus.json`
-
-#### "Code Review - Codex"
-```
-Read: ${CLAUDE_PLUGIN_ROOT}/agents/codex-reviewer.md
-Task(
-  subagent_type: "claude-codex:codex-reviewer",
-  model: "external",
-  prompt: "[Agent prompt content] Review implementation in .task/impl-result.json. Write result to .task/review-codex.json"
-)
-```
-**Expected output:** `.task/review-codex.json`
-
-**After Skill completes, IMMEDIATELY:**
-1. Read `.task/review-codex.json`
-2. IF status == "approved":
-   - TaskUpdate(task.id, status: "completed", metadata: {result: "approved"})
-   - Continue main loop → Pipeline COMPLETE
-3. IF status == "needs_changes":
-   - Determine iteration: count existing "Fix Code" tasks + 1
-   - Create fix task:
-     ```
-     fix_id = TaskCreate(
-       subject: "Fix Code Issues - Iteration {N}",
-       description: "Address Codex feedback: {review.feedback}",
-       activeForm: "Fixing code issues"
-     )
-     ```
-   - Create re-review task:
-     ```
-     re_review_id = TaskCreate(
-       subject: "Code Review - Codex v{N+1}",
-       description: "Re-review code after fixes. MANDATORY GATE.",
-       activeForm: "Re-running Codex code review"
-     )
-     TaskUpdate(re_review_id, addBlockedBy: [fix_id])
-     ```
-   - Mark current task completed:
-     ```
-     TaskUpdate(task.id, status: "completed", metadata: {result: "needs_changes"})
-     ```
-   - **Continue main loop** (TaskList will return fix task as next unblocked)
-4. IF status == "rejected":
-   - Implementation is fundamentally flawed - requires significant rework
-   - Determine iteration: count existing "Rework" tasks + 1
-   - Create rework task (NOT minor fix):
-     ```
-     rework_id = TaskCreate(
-       subject: "Rework Implementation - Iteration {N}",
-       description: "Implementation REJECTED by Codex. Significant rework required.\n\nRejection: {review.summary}\n\nThis is NOT a minor fix - re-evaluate the approach.",
-       activeForm: "Reworking implementation"
-     )
-     ```
-   - Create re-review task:
-     ```
-     re_review_id = TaskCreate(
-       subject: "Code Review - Codex v{N+1}",
-       description: "Re-review after major rework. MANDATORY GATE.",
-       activeForm: "Re-running Codex code review"
-     )
-     TaskUpdate(re_review_id, addBlockedBy: [rework_id])
-     ```
-   - Mark current task completed:
-     ```
-     TaskUpdate(task.id, status: "completed", metadata: {result: "rejected"})
-     ```
-   - **Continue main loop** (TaskList will return rework task as next unblocked)
-
-#### "Fix [Phase] Issues - Iteration N" (Dynamic Fix Tasks)
-```
-# Resume the appropriate agent with feedback
-# IMPORTANT: Specify the correct model for each agent type
-IF plan fix:
-  Task(
-    resume: planner_agent_id,
-    model: "opus",  # Planner uses Opus for deep analysis
-    prompt: "Fix issues: [feedback]. Update .task/plan-refined.json"
-  )
-IF code fix:
-  Task(
-    resume: implementer_agent_id,
-    model: "sonnet",  # Implementer uses Sonnet for balanced speed/quality
-    prompt: "Fix issues: [feedback]. Update implementation."
-  )
 ```
 
 ---
 
-## VALIDATE_AND_COMPLETE(task)
+## User Interaction
 
-### For Non-Review Tasks
+The main thread handles user input throughout the pipeline:
+
+### User Provides Additional Info
+
+If user adds requirements mid-pipeline:
+
+1. **During requirements/planning:** Incorporate and continue
+2. **After plan review started:** Ask user if they want to:
+   - Continue with current plan
+   - Kick back to planning phase
+   - Restart from requirements
+
+### Suggesting Restart
+
+When significant issues arise, suggest options:
+
 ```
-# Verify expected output file exists
-IF output file missing:
-    -> ERROR: Task did not produce expected output
-ELSE:
-    TaskUpdate(task.id, status: "completed")
+AskUserQuestion:
+  "The plan has fundamental issues. Options:"
+  1. "Restart from requirements" - Gather new requirements
+  2. "Revise plan" - Keep requirements, re-plan
+  3. "Continue anyway" - Proceed with current plan
 ```
 
-### For Review Tasks (CRITICAL: Handle needs_changes)
+### Kick Back Pattern
 
-```
-# Read the review output file
-review = Read(.task/review-*.json based on task)
+To kick back to an earlier phase:
 
-IF review.status == "approved":
-    TaskUpdate(task.id, status: "completed", metadata: {result: "approved"})
-
-ELSE IF review.status == "needs_changes":
-    # GRANULAR FIX: Create fix task immediately
-
-    # 1. Determine phase and iteration
-    iteration = count existing "Fix" tasks for this phase + 1
-
-    # 2. Create fix task
-    fix_task_id = TaskCreate(
-      subject: "Fix [Phase] Issues - Iteration {iteration}",
-      description: "Address feedback: {review.feedback}. Fix the issues identified by {reviewer}.",
-      activeForm: "Fixing {phase} issues"
-    )
-
-    # 3. Update fix task to be blocked by current review
-    TaskUpdate(fix_task_id, addBlockedBy: [task.id])
-
-    # 4. Find the NEXT reviewer in sequence and update its blockedBy
-    #    This ensures the next reviewer waits for the fix
-    IF task is "Plan Review - Sonnet":
-        # Find Opus review task, add fix_task_id to its blockedBy
-        TaskUpdate(plan_review_opus_id, addBlockedBy: [fix_task_id])
-    ELSE IF task is "Plan Review - Opus":
-        # Find Codex review task, add fix_task_id to its blockedBy
-        TaskUpdate(plan_review_codex_id, addBlockedBy: [fix_task_id])
-    ELSE IF task is "Plan Review - Codex":
-        # Final gate needs changes - create re-review task
-        re_review_id = TaskCreate(
-          subject: "Plan Review - Codex v{iteration+1}",
-          description: "Re-review plan after fixes",
-          activeForm: "Re-running Codex plan review"
-        )
-        TaskUpdate(re_review_id, addBlockedBy: [fix_task_id])
-        # Update implementation to wait for re-review
-        TaskUpdate(implementation_id, addBlockedBy: [re_review_id])
-    # Same pattern for Code Reviews...
-    ELSE IF task is "Code Review - Sonnet":
-        TaskUpdate(code_review_opus_id, addBlockedBy: [fix_task_id])
-    ELSE IF task is "Code Review - Opus":
-        TaskUpdate(code_review_codex_id, addBlockedBy: [fix_task_id])
-    ELSE IF task is "Code Review - Codex":
-        re_review_id = TaskCreate(
-          subject: "Code Review - Codex v{iteration+1}",
-          description: "Re-review code after fixes",
-          activeForm: "Re-running Codex code review"
-        )
-        TaskUpdate(re_review_id, addBlockedBy: [fix_task_id])
-        # This becomes the new final task
-
-    # 5. Mark current review as completed (with needs_changes metadata)
-    TaskUpdate(task.id, status: "completed", metadata: {result: "needs_changes", iteration: iteration})
-
-ELSE IF review.status == "needs_clarification":
-    # Ask user, then resume the agent
-    AskUserQuestion(review.questions)
-    # Resume appropriate agent with answers
-    # DO NOT mark task complete yet - wait for re-review
-
-ELSE IF review.status == "rejected":
-    # Code review only - implementation is fundamentally flawed
-    # Treat as critical needs_changes requiring significant rework
-
-    # 1. Determine iteration number
-    existing_rework_tasks = TaskList() filtered by subject containing "Rework"
-    iteration = len(existing_rework_tasks) + 1
-
-    # 2. Create rework task (NOT minor fix - emphasize major rework needed)
-    rework_task_id = TaskCreate(
-        subject: "Rework Implementation - Iteration {iteration}",
-        description: "Implementation REJECTED. Significant rework required.\n\nRejection: {review.summary}\n\nThis is NOT a minor fix - re-evaluate the approach.",
-        activeForm: "Reworking implementation"
-    )
-
-    # 3. Block next reviewer in sequence (just like needs_changes)
-    # This prevents subsequent reviewers from proceeding on rejected code
-    IF task is "Code Review - Sonnet":
-        TaskUpdate(code_review_opus_id, addBlockedBy: [rework_task_id])
-    ELSE IF task is "Code Review - Opus":
-        TaskUpdate(code_review_codex_id, addBlockedBy: [rework_task_id])
-    ELSE IF task is "Code Review - Codex":
-        # Codex rejected - create re-review task
-        re_review_id = TaskCreate(
-            subject: "Code Review - Codex v{iteration+1}",
-            description: "Re-review after major rework. MANDATORY GATE.",
-            activeForm: "Re-running Codex code review"
-        )
-        TaskUpdate(re_review_id, addBlockedBy: [rework_task_id])
-
-    # 4. Mark current review as completed with rejected metadata
-    TaskUpdate(task.id, status: "completed", metadata: {result: "rejected", iteration: iteration})
-```
+1. Mark current tasks as completed (with metadata noting "superseded")
+2. Create new tasks for the phase to restart
+3. Update blockedBy chains accordingly
+4. Use `state-manager.sh set <phase> ""` to reset state (emergency only)
 
 ---
 
-## Worker Signal Protocol
+## Hook Behavior
 
-Workers communicate via `.task/worker-signal.json`:
+### UserPromptSubmit Hook (Guidance)
 
+The `guidance-hook.js` runs on every prompt and:
+
+1. **Reads artifact files** - Checks `.task/*.json` to determine current phase
+2. **Injects guidance** - Reminds you what to do next
+3. **No state tracking** - Phase is implicit from which files exist
+
+### SubagentStop Hook (Enforcement)
+
+The `review-validator.js` runs when reviewer agents finish and:
+
+1. **Validates AC coverage** - Checks `acceptance_criteria_verification` (code) or `requirements_coverage` (plan)
+2. **Blocks invalid reviews** - Returns `{"decision": "block", "reason": "..."}` if:
+   - Review doesn't verify all ACs from user-story.json
+   - Review approves with incomplete ACs (NOT_IMPLEMENTED or PARTIAL)
+3. **Allows valid reviews** - Proceeds normally when validation passes
+
+### Guidance Examples
+
+Current phase guidance:
+```
+**Phase: Code Review**
+→ Run Sonnet code review (code-reviewer agent, sonnet)
+
+**Reminder**: 5 acceptance criteria must be verified in all reviews.
+Reviews MUST include acceptance_criteria_verification (code) or requirements_coverage (plan).
+```
+
+### Enforcement Examples
+
+SubagentStop blocking:
 ```json
 {
-  "worker_id": "requirements-gatherer-abc123",
-  "phase": "requirements|planning|implementation",
-  "status": "needs_input|completed|error|in_progress",
-  "questions": [...],
-  "agent_id": "abc123",
-  "timestamp": "ISO8601"
+  "decision": "block",
+  "reason": "Review missing acceptance_criteria_verification. Must verify all acceptance criteria from user-story.json."
 }
 ```
 
-### Handling Signals (within EXECUTE_TASK)
+**Important:** SubagentStop enforcement is mandatory. Tasks with `blockedBy` are the primary structural enforcement.
 
+---
+
+## Output File Formats
+
+### user-story.json
+```json
+{
+  "id": "story-YYYYMMDD-HHMMSS",
+  "title": "Feature title",
+  "acceptance_criteria": [
+    { "id": "AC1", "description": "..." }
+  ]
+}
 ```
-CHECK_SIGNAL:
-    Read .task/worker-signal.json
 
-    IF status == "completed":
-        Return (task execution done)
+### plan-refined.json
+```json
+{
+  "id": "plan-YYYYMMDD-HHMMSS",
+  "title": "Plan title",
+  "steps": [
+    { "description": "Step 1", "files": [...] }
+  ]
+}
+```
 
-    IF status == "needs_input":
-        questions = signal.questions
-        answers = AskUserQuestion(questions)
-        # Resume with same model as original task:
-        # - requirements/planning phases: model: "opus"
-        # - implementation phase: model: "sonnet"
-        Task(
-          resume: signal.agent_id,
-          model: [match original task model],
-          prompt: "Answers: [answers]"
-        )
-        GOTO CHECK_SIGNAL
+### review-*.json (plan reviews)
+```json
+{
+  "status": "approved" | "needs_changes" | "needs_clarification" | "rejected",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "summary": "...",
+  "feedback": "...",
+  "requirements_coverage": {
+    "mapping": {
+      "AC1": ["Step 1: Setup authentication..."],
+      "AC2": ["Step 3: Add validation...", "Step 4: Error handling"]
+    },
+    "missing": []
+  }
+}
+```
 
-    IF status == "error":
-        Log error, decide: retry or abort
+**Required fields:** `needs_clarification` (boolean), `clarification_questions` (array), `requirements_coverage`.
+**Note:** Set `needs_clarification: true` and populate `clarification_questions` when status is `needs_clarification`.
 
-    IF status == "in_progress":
-        Wait and check again
+### code-review-*.json (code reviews)
+```json
+{
+  "status": "approved" | "needs_changes" | "needs_clarification" | "rejected",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "summary": "...",
+  "feedback": "...",
+  "acceptance_criteria_verification": {
+    "details": {
+      "AC1": { "status": "IMPLEMENTED", "evidence": "src/auth.ts:45" },
+      "AC2": { "status": "NOT_IMPLEMENTED", "notes": "Missing validation" }
+    }
+  }
+}
+```
+
+**Required fields:** `needs_clarification` (boolean), `clarification_questions` (array), `acceptance_criteria_verification`.
+**Note:** Set `needs_clarification: true` and populate `clarification_questions` when status is `needs_clarification`.
+**Important:** Status must be `IMPLEMENTED` for all ACs to approve. `NOT_IMPLEMENTED` or `PARTIAL` blocks approval.
+
+### impl-result.json
+```json
+{
+  "status": "complete" | "partial" | "failed",
+  "files_changed": [...],
+  "blocked_reason": "..."
+}
 ```
 
 ---
 
-## Phase 5: Completion
+## Terminal States
 
-After all tasks are completed:
-
-### Step 1: Final Validation
-
-```
-# Verify all required files exist with approved status
-CHECKLIST (all must be true):
-[ ] .task/user-story.json exists
-[ ] .task/plan-refined.json exists
-[ ] Final plan review has status == "approved"
-[ ] .task/impl-result.json exists AND status == "complete"
-[ ] Final code review has status == "approved"
-[ ] All test commands passed
-```
-
-### Step 2: Clean Up
-
-```bash
-rm -f .task/loop-state.json
-"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" set complete "$(bun ${CLAUDE_PLUGIN_ROOT}/scripts/json-tool.ts get .task/plan-refined.json .id)"
-```
-
-### Step 3: Report Results
-
-Report to user:
-- What was implemented
-- Files changed
-- Tests added/modified
-- Review iterations taken (visible in task history)
-- Final test results
-
----
-
-## Why Task-Based Enforcement Works
-
-| Instruction-Based (Old) | Task-Based (New) |
-|-------------------------|------------------|
-| "Run Sonnet → Opus → Codex" | `blockedBy` prevents Codex until Opus completes |
-| LLM can skip "redundant" steps | LLM queries TaskList() for next available task |
-| No audit trail | Complete task history with metadata |
-| Hidden progress | User sees real-time task progress |
-| Relies on instruction-following | Relies on data queries |
-
-**Key Insight:** `blockedBy` is **data**, not an instruction. When you call `TaskList()`, blocked tasks cannot be claimed. The prompt becomes "find next unblocked task" - a data query, not instruction following.
+| State | Meaning | Action |
+|-------|---------|--------|
+| `complete` | All reviews approved | Report success |
+| `max_iterations_reached` | 10+ fix iterations | Escalate to user |
+| `plan_rejected` | Codex rejected plan | User decision needed |
+| `implementation_failed` | Implementation blocked | User decision needed |
 
 ---
 
 ## Important Rules
 
-1. **ALWAYS query TaskList()** to find the next task - do NOT skip ahead
-2. **NEVER mark a task complete** without executing it and validating output
-3. **Create fix tasks dynamically** when reviews return `needs_changes`
-4. **Update blockedBy** when creating fix tasks to maintain sequence
-5. **Semi-interactive planning**: Only ask user when genuinely needed
-6. **Autonomous after plan approval**: Once all plan reviews pass, proceed to implementation
-7. **Ralph Loop is default**: Use `ralph-loop` mode unless plan explicitly specifies `simple` mode
-8. **Review before test**: Always run reviews first, then tests
-9. **Accept all feedback**: No debate with reviewers, just fix
-10. **Resume for context**: Use resume to preserve worker memory across iterations
-11. **NEVER run Codex via Bash directly**: Always use `Task(subagent_type: "claude-codex:codex-reviewer", model: "external")` which invokes Codex via the codex-reviewer agent
-12. **MANDATORY Codex gate**: Pipeline is NOT complete without Codex approval
-
----
-
-## Progress Reporting
-
-The task system provides automatic progress visibility. Report inline but DO NOT STOP after plan reviews pass:
-
-```
-Pipeline initialized with 9 tasks.
-
-[1/9] Gather requirements - in_progress
-Requirements approved.
-
-[2/9] Create implementation plan - in_progress
-Plan created. Risk assessment: No conflicts.
-
-[3/9] Plan Review - Sonnet - in_progress
-Sonnet: needs_changes (2 issues)
--> Created: Fix Plan Issues - Iteration 1
-
-[Fix task] Fix Plan Issues - Iteration 1 - in_progress
-Fixes applied.
-
-[3/9] Plan Review - Sonnet - completed (was needs_changes, now proceeding)
-[4/9] Plan Review - Opus - in_progress
-Opus: approved
-
-[5/9] Plan Review - Codex - in_progress
-Codex: approved
-
-[6/9] Implementation - in_progress
-Implementation complete.
-
-[7/9] Code Review - Sonnet - in_progress
-Sonnet: approved
-
-[8/9] Code Review - Opus - in_progress
-Opus: approved
-
-[9/9] Code Review - Codex - in_progress
-Codex: approved
-
-All tasks completed. Pipeline finished successfully.
-
-<promise>IMPLEMENTATION_COMPLETE</promise>
-```
+1. **Tasks are primary** - Create tasks with `blockedBy` for structural enforcement
+2. **SubagentStop enforces** - Hook validates reviewer outputs and can block
+3. **AC verification required** - All reviews MUST verify acceptance criteria from user-story.json
+4. **Same-reviewer re-review** - After fix/rework, SAME reviewer validates before next
+5. **Codex is mandatory** - Pipeline NOT complete without Codex approval
+6. **Max 10 iterations** - Per reviewer, then escalate to user
+7. **Accept all feedback** - No debate with reviewers, just fix
+8. **User can interrupt** - Handle additional input, offer restart/kick back
 
 ---
 
 ## Emergency Controls
 
 If stuck:
-1. **Cancel command:** `/cancel-loop`
-2. **Check task state:** `TaskList()` to see blocked tasks
-3. **Delete state file:** `rm .task/loop-state.json`
-4. **Max iterations:** Loop auto-stops at limit
 
----
-
-## Model Assignment Summary
-
-| Phase | Agent | Model | Reason |
-|-------|-------|-------|--------|
-| Requirements | requirements-gatherer | **opus** | Deep understanding + user interaction |
-| Planning | planner | **opus** | Comprehensive codebase research |
-| Plan Review #1 | plan-reviewer | sonnet | Quick quality check |
-| Plan Review #2 | plan-reviewer | opus | Deep architectural analysis |
-| Plan Review #3 | codex-reviewer | external | Independent final gate |
-| Implementation | implementer | sonnet | Balanced speed/quality |
-| Code Review #1 | code-reviewer | sonnet | Quick code check |
-| Code Review #2 | code-reviewer | opus | Deep code analysis |
-| Code Review #3 | codex-reviewer | external | Independent final gate |
+1. **Check task state:** `TaskList()` to see blocked tasks
+2. **Check artifacts:** Read `.task/*.json` files to understand progress
+3. **Reset pipeline:** `"${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" reset`

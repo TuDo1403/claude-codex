@@ -2,9 +2,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Source state manager (sets PLUGIN_ROOT and TASK_DIR)
-source "$SCRIPT_DIR/state-manager.sh"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
+TASK_DIR="${CLAUDE_PROJECT_DIR:-.}/.task"
 
 # Colors for output
 RED='\033[0;31m'
@@ -77,39 +76,209 @@ setup_traps() {
   trap 'release_lock; exit 143' TERM
 }
 
-# Get max retries (hardcoded default)
-get_max_retries() {
-  echo "3"
+# Check if a JSON file exists and has valid content
+check_json_exists() {
+  local file="$1"
+  [[ -f "$file" ]] && [[ -s "$file" ]]
 }
 
-# Log error to file
-log_error_to_file() {
-  local stage="$1"
-  local exit_code="$2"
-  local message="$3"
-
-  mkdir -p "$TASK_DIR/errors"
-  local timestamp
-  timestamp=$(date +%Y%m%d-%H%M%S)
-  local error_file="$TASK_DIR/errors/error-${timestamp}.json"
-
-  cat > "$error_file" << EOF
-{
-  "id": "err-${timestamp}",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "stage": "$stage",
-  "exit_code": $exit_code,
-  "message": "$message",
-  "task_id": "$(get_task_id)",
-  "iteration": $(get_iteration)
-}
-EOF
-
-  echo "$error_file"
+# Get status from a JSON file
+get_json_status() {
+  local file="$1"
+  if check_json_exists "$file"; then
+    bun -e "const f = Bun.file('$file'); const d = await f.json(); console.log(d.status || '')" 2>/dev/null || echo ""
+  fi
 }
 
-# Note: Old run_* functions removed - main thread handles execution
-# The orchestrator just shows status and next actions
+# Determine current phase from artifact files
+determine_phase() {
+  # No user story yet
+  if ! check_json_exists "$TASK_DIR/user-story.json"; then
+    echo "requirements_gathering"
+    return
+  fi
+
+  # No plan yet
+  if ! check_json_exists "$TASK_DIR/plan-refined.json"; then
+    echo "plan_drafting"
+    return
+  fi
+
+  # Plan review chain
+  local sonnet_status opus_status codex_status
+  sonnet_status=$(get_json_status "$TASK_DIR/review-sonnet.json")
+  opus_status=$(get_json_status "$TASK_DIR/review-opus.json")
+  codex_status=$(get_json_status "$TASK_DIR/review-codex.json")
+
+  if [[ -z "$sonnet_status" ]]; then
+    echo "plan_review_sonnet"
+    return
+  fi
+  if [[ "$sonnet_status" == "needs_clarification" ]]; then
+    echo "clarification_plan_sonnet"
+    return
+  fi
+  if [[ "$sonnet_status" == "needs_changes" ]]; then
+    echo "fix_plan_sonnet"
+    return
+  fi
+
+  if [[ -z "$opus_status" ]]; then
+    echo "plan_review_opus"
+    return
+  fi
+  if [[ "$opus_status" == "needs_clarification" ]]; then
+    echo "clarification_plan_opus"
+    return
+  fi
+  if [[ "$opus_status" == "needs_changes" ]]; then
+    echo "fix_plan_opus"
+    return
+  fi
+
+  if [[ -z "$codex_status" ]]; then
+    echo "plan_review_codex"
+    return
+  fi
+  if [[ "$codex_status" == "needs_clarification" ]]; then
+    echo "clarification_plan_codex"
+    return
+  fi
+  if [[ "$codex_status" == "needs_changes" ]]; then
+    echo "fix_plan_codex"
+    return
+  fi
+  if [[ "$codex_status" == "rejected" ]]; then
+    echo "plan_rejected"
+    return
+  fi
+
+  # Implementation
+  local impl_status
+  impl_status=$(get_json_status "$TASK_DIR/impl-result.json")
+  if [[ -z "$impl_status" ]] || [[ "$impl_status" == "partial" ]]; then
+    echo "implementation"
+    return
+  fi
+  if [[ "$impl_status" == "failed" ]]; then
+    echo "implementation_failed"
+    return
+  fi
+
+  # Code review chain
+  sonnet_status=$(get_json_status "$TASK_DIR/code-review-sonnet.json")
+  opus_status=$(get_json_status "$TASK_DIR/code-review-opus.json")
+  codex_status=$(get_json_status "$TASK_DIR/code-review-codex.json")
+
+  if [[ -z "$sonnet_status" ]]; then
+    echo "code_review_sonnet"
+    return
+  fi
+  if [[ "$sonnet_status" == "needs_clarification" ]]; then
+    echo "clarification_code_sonnet"
+    return
+  fi
+  if [[ "$sonnet_status" == "needs_changes" ]]; then
+    echo "fix_code_sonnet"
+    return
+  fi
+
+  if [[ -z "$opus_status" ]]; then
+    echo "code_review_opus"
+    return
+  fi
+  if [[ "$opus_status" == "needs_clarification" ]]; then
+    echo "clarification_code_opus"
+    return
+  fi
+  if [[ "$opus_status" == "needs_changes" ]]; then
+    echo "fix_code_opus"
+    return
+  fi
+
+  if [[ -z "$codex_status" ]]; then
+    echo "code_review_codex"
+    return
+  fi
+  if [[ "$codex_status" == "needs_clarification" ]]; then
+    echo "clarification_code_codex"
+    return
+  fi
+  if [[ "$codex_status" == "needs_changes" ]]; then
+    echo "fix_code_codex"
+    return
+  fi
+  if [[ "$codex_status" == "rejected" ]]; then
+    echo "code_rejected"
+    return
+  fi
+
+  # All reviews approved
+  echo "complete"
+}
+
+# Show current status
+show_status() {
+  if [[ ! -d "$TASK_DIR" ]]; then
+    log_info "No .task directory found. Pipeline not started."
+    echo ""
+    echo "To start, invoke /multi-ai with your request."
+    return
+  fi
+
+  local phase
+  phase=$(determine_phase)
+  log_info "Current phase: $phase"
+  echo ""
+
+  case "$phase" in
+    requirements_gathering)
+      echo "Phase: Requirements Gathering"
+      echo "Use requirements-gatherer agent (opus) to create user-story.json"
+      ;;
+    plan_drafting)
+      echo "Phase: Planning"
+      echo "Use planner agent (opus) to create plan-refined.json"
+      ;;
+    plan_review_*)
+      echo "Phase: Plan Review"
+      echo "Run sequential plan reviews: sonnet -> opus -> codex"
+      ;;
+    fix_plan_*)
+      echo "Phase: Fix Plan"
+      echo "Address reviewer feedback, create fix + re-review tasks"
+      ;;
+    implementation)
+      echo "Phase: Implementation"
+      echo "Use implementer agent (sonnet) to implement plan-refined.json"
+      ;;
+    code_review_*)
+      echo "Phase: Code Review"
+      echo "Run sequential code reviews: sonnet -> opus -> codex"
+      ;;
+    fix_code_*)
+      echo "Phase: Fix Code"
+      echo "Address reviewer feedback, create fix + re-review tasks"
+      ;;
+    clarification_plan_*|clarification_code_*)
+      echo "Phase: Clarification Needed"
+      echo "Reviewer has questions. Read clarification_questions from review file."
+      echo "If you can answer directly, do so. Otherwise use AskUserQuestion."
+      echo "After answering, re-run the same reviewer."
+      ;;
+    complete)
+      log_success "Pipeline complete! All reviews approved."
+      echo ""
+      echo "To reset for next task:"
+      echo "  $PLUGIN_ROOT/scripts/orchestrator.sh reset"
+      ;;
+    plan_rejected|implementation_failed|code_rejected)
+      log_error "Pipeline stopped: $phase"
+      echo ""
+      echo "Review the feedback files and decide how to proceed."
+      ;;
+  esac
+}
 
 # Dry-run validation mode
 run_dry_run() {
@@ -127,32 +296,9 @@ run_dry_run() {
     ((errors++)) || true
   fi
 
-  # 2. Check state.json
-  if [[ -f "$TASK_DIR/state.json" ]]; then
-    if $JSON_TOOL valid "$TASK_DIR/state.json" 2>/dev/null; then
-      local status
-      status=$($JSON_TOOL get "$TASK_DIR/state.json" ".status // empty")
-      local valid_states="idle requirements_gathering plan_drafting plan_refining plan_reviewing implementing implementing_loop reviewing fixing complete error needs_user_input"
-      if [[ -n "$status" ]] && [[ " $valid_states " =~ " $status " ]]; then
-        echo "State file: OK (status: $status)"
-      else
-        echo "State file: INVALID STATUS ($status)"
-        ((errors++)) || true
-      fi
-    else
-      echo "State file: INVALID JSON"
-      ((errors++)) || true
-    fi
-  else
-    echo "State file: MISSING (will be created on first run)"
-  fi
-
-  # 3. Check required scripts
+  # 2. Check required scripts
   local required_scripts=(
-    "state-manager.sh"
     "orchestrator.sh"
-    "recover.sh"
-    "setup.sh"
   )
   local scripts_ok=1
   for script in "${required_scripts[@]}"; do
@@ -168,11 +314,10 @@ run_dry_run() {
   done
   [[ $scripts_ok -eq 1 ]] && echo "Scripts: OK (${#required_scripts[@]} scripts)"
 
-  # 5. Check skills
+  # 3. Check skills
   local skills_dir="$PLUGIN_ROOT/skills"
   local required_skills=(
     "multi-ai/SKILL.md"
-    "cancel-loop/SKILL.md"
   )
   local skills_ok=1
   if [[ -d "$skills_dir" ]]; then
@@ -189,7 +334,7 @@ run_dry_run() {
     ((errors++)) || true
   fi
 
-  # 5b. Check custom agents
+  # 4. Check custom agents
   local agents_dir="$PLUGIN_ROOT/agents"
   local required_agents=(
     "requirements-gatherer.md"
@@ -229,16 +374,7 @@ run_dry_run() {
     ((errors++)) || true
   fi
 
-  # 6. Check .gitignore for .task (in project directory)
-  local project_gitignore="${CLAUDE_PROJECT_DIR:-.}/.gitignore"
-  if [[ -f "$project_gitignore" ]] && grep -q "\.task" "$project_gitignore"; then
-    echo ".gitignore (.task): OK"
-  else
-    echo ".gitignore (.task): WARNING - .task not in $project_gitignore"
-    ((warnings++)) || true
-  fi
-
-  # 7. Check CLI tools
+  # 6. Check CLI tools
   if command -v bun >/dev/null 2>&1; then
     echo "CLI bun: OK"
   else
@@ -260,24 +396,6 @@ run_dry_run() {
     ((warnings++)) || true
   fi
 
-  # 8. Check for global CLAUDE.md conflict
-  local global_claude="$HOME/.claude/CLAUDE.md"
-  if [[ -f "$global_claude" ]]; then
-    local workflow_mode
-    workflow_mode=$($JSON_TOOL get "$TASK_DIR/preferences.json" ".workflow_mode // empty" 2>/dev/null)
-    if [[ -n "$workflow_mode" ]]; then
-      local mode
-      mode="$workflow_mode"
-      echo "Global CLAUDE.md: DETECTED (configured: $mode mode)"
-    else
-      echo "Global CLAUDE.md: WARNING - detected but setup not run"
-      echo "  Run: $PLUGIN_ROOT/scripts/setup.sh"
-      ((warnings++)) || true
-    fi
-  else
-    echo "Global CLAUDE.md: OK (not detected)"
-  fi
-
   # Summary
   echo ""
   if [[ $errors -eq 0 ]]; then
@@ -293,203 +411,40 @@ run_dry_run() {
   fi
 }
 
-# Show next action based on current state
-show_next_action() {
-  local status
-  status=$(get_status)
+# Reset pipeline
+reset_pipeline() {
+  if ! acquire_lock; then
+    log_error "Cannot reset while another orchestrator is running"
+    exit 1
+  fi
+  setup_traps
 
-  log_info "Current state: $status"
-  echo ""
+  log_warn "Resetting pipeline..."
 
-  case "$status" in
-    idle)
-      echo "Pipeline idle. To start, invoke /multi-ai with your request."
-      echo ""
-      echo "The pipeline will:"
-      echo "  1. Gather requirements (interactive - requirements-gatherer agent)"
-      echo "  2. Plan (semi-interactive - planner agent)"
-      echo "  3. Review plan (sequential - sonnet, opus, codex gate)"
-      echo "  4. Implement (ralph loop - implementer agent)"
-      echo "  5. Review code (sequential - sonnet, opus, codex gate)"
-      echo "  6. Report results"
-      ;;
-    requirements_gathering)
-      echo "ACTION: Gather and clarify requirements (INTERACTIVE)"
-      echo ""
-      echo "The requirements-gatherer agent should be active via Task tool."
-      echo "Check .task/worker-signal.json for status and questions."
-      echo "Once requirements are approved, the pipeline will proceed to planning."
-      echo ""
-      echo "If stuck, manually transition:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set plan_drafting \"\""
-      ;;
-    plan_drafting)
-      echo "ACTION: Create initial plan (main thread)"
-      echo ""
-      echo "Task: Create initial plan from approved user story"
-      echo "Input: $TASK_DIR/user-story.json (authoritative requirements)"
-      echo "Legacy: $TASK_DIR/user-request.txt (summary only)"
-      echo "Output: $TASK_DIR/plan.json"
-      echo ""
-      echo "After completion, transition state:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set plan_refining \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan.json .id)\""
-      ;;
-    plan_refining)
-      echo "ACTION: Refine plan with technical details (planner agent)"
-      echo ""
-      echo "Task: Research codebase and refine plan"
-      echo "Input: $TASK_DIR/plan.json"
-      if [[ -f "$TASK_DIR/review-codex.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-codex.json (address all concerns - restart cycle)"
-      elif [[ -f "$TASK_DIR/review-opus.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-opus.json (address concerns)"
-      elif [[ -f "$TASK_DIR/review-sonnet.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-sonnet.json (address concerns)"
-      fi
-      echo "Output: $TASK_DIR/plan-refined.json"
-      echo ""
-      echo "After completion, run SEQUENTIAL reviews using Task tool:"
-      echo "  1. Task(plan-reviewer, sonnet) → $TASK_DIR/review-sonnet.json"
-      echo "     If needs_changes: resume planner to fix, then continue to step 2"
-      echo "  2. Task(plan-reviewer, opus) → $TASK_DIR/review-opus.json"
-      echo "     If needs_changes: resume planner to fix, then continue to step 3"
-      echo "  3. Task(codex-reviewer, external) (Codex final gate) → $TASK_DIR/review-codex.json"
-      echo "     If needs_changes: resume planner to fix, restart from step 1"
-      echo "     If approved: transition to implementing"
-      echo ""
-      echo "When all reviews pass:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
-      ;;
-    plan_reviewing)
-      echo "NOTE: This state is deprecated. Reviews now happen within plan_refining."
-      echo ""
-      echo "Use the Task-based review flow in plan_refining state."
-      echo "To return to plan_refining:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set plan_refining \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
-      ;;
-    implementing)
-      echo "ACTION: Implement the approved plan (implementer agent)"
-      echo ""
-      echo "Task: Implement the approved plan using Task tool with implementer agent"
-      echo "Agent: implementer (sonnet model)"
-      echo "Input: $TASK_DIR/plan-refined.json"
-      echo "Standards: $PLUGIN_ROOT/docs/standards.md"
-      if [[ -f "$TASK_DIR/review-codex.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-codex.json (address all concerns - restart cycle)"
-      elif [[ -f "$TASK_DIR/review-opus.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-opus.json (address concerns)"
-      elif [[ -f "$TASK_DIR/review-sonnet.json" ]]; then
-        echo "Feedback: $TASK_DIR/review-sonnet.json (address concerns)"
-      fi
-      echo "Output: $TASK_DIR/impl-result.json"
-      echo ""
-      echo "After implementation, run SEQUENTIAL reviews using Task tool:"
-      echo "  1. Task(code-reviewer, sonnet) → $TASK_DIR/review-sonnet.json"
-      echo "     If needs_changes: resume implementer to fix, then continue to step 2"
-      echo "  2. Task(code-reviewer, opus) → $TASK_DIR/review-opus.json"
-      echo "     If needs_changes: resume implementer to fix, then continue to step 3"
-      echo "  3. Task(codex-reviewer, external) (Codex final gate) → $TASK_DIR/review-codex.json"
-      echo "     If needs_changes: resume implementer to fix, restart from step 1"
-      echo "     If approved: transition to complete"
-      echo ""
-      echo "When all reviews pass:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set complete \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
-      ;;
-    implementing_loop)
-      echo "ACTION: Ralph Loop - TDD-driven autonomous implementation"
-      echo ""
-      echo "The stop hook will iterate until completion criteria met:"
-      echo "  - All reviews approved (sonnet, opus, codex)"
-      echo "  - All test commands pass"
-      echo ""
-      if [[ -f "$TASK_DIR/loop-state.json" ]]; then
-        local iteration max_iter
-        iteration=$($JSON_TOOL get "$TASK_DIR/loop-state.json" ".iteration // 0")
-        max_iter=$($JSON_TOOL get "$TASK_DIR/loop-state.json" ".max_iterations // 10")
-        echo "Loop state: iteration $iteration of $max_iter"
-      fi
-      echo ""
-      echo "To cancel the loop:"
-      echo "  /cancel-loop"
-      echo "  OR: rm $TASK_DIR/loop-state.json"
-      ;;
-    reviewing)
-      echo "NOTE: This state is deprecated. Reviews now happen within implementing."
-      echo ""
-      echo "Use the Task-based review flow in implementing state."
-      echo "To return to implementing:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
-      ;;
-    fixing)
-      echo "NOTE: This state is deprecated. Fixes now happen within implementing."
-      echo ""
-      echo "The Task-based review flow handles fixes by resuming the implementer agent:"
-      echo "  sonnet review → resume implementer → opus review → resume → codex → resume"
-      echo ""
-      echo "To return to implementing:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set implementing \"\$(bun $PLUGIN_ROOT/scripts/json-tool.ts get $TASK_DIR/plan-refined.json .id)\""
-      ;;
-    complete)
-      log_success "Task completed successfully!"
-      echo ""
-      echo "To reset for next task:"
-      echo "  $PLUGIN_ROOT/scripts/orchestrator.sh reset"
-      ;;
-    needs_user_input)
-      log_warn "Pipeline paused - user input required"
-      echo ""
-      echo "Check for questions in:"
-      echo "  - $TASK_DIR/impl-result.json"
-      echo "  - $TASK_DIR/plan-refined.json"
-      echo ""
-      echo "After providing answers, resume with:"
-      echo "  $PLUGIN_ROOT/scripts/state-manager.sh set <plan_refining|implementing> <task_id>"
-      ;;
-    error)
-      log_error "Pipeline in error state"
-      echo ""
-      echo "To recover:"
-      echo "  $PLUGIN_ROOT/scripts/recover.sh"
-      echo ""
-      echo "Or reset:"
-      echo "  $PLUGIN_ROOT/scripts/orchestrator.sh reset"
-      ;;
-    *)
-      log_error "Unknown state: $status"
-      exit 1
-      ;;
-  esac
+  # Remove all artifact files
+  rm -f "$TASK_DIR/user-story.json"
+  rm -f "$TASK_DIR/plan.json" "$TASK_DIR/plan-refined.json"
+  rm -f "$TASK_DIR/impl-result.json"
+  rm -f "$TASK_DIR/review-sonnet.json" "$TASK_DIR/review-opus.json" "$TASK_DIR/review-codex.json"
+  rm -f "$TASK_DIR/code-review-sonnet.json" "$TASK_DIR/code-review-opus.json" "$TASK_DIR/code-review-codex.json"
+  rm -f "$TASK_DIR/pipeline-tasks.json"
+  rm -f "$TASK_DIR/user-request.txt"
+  rm -f "$TASK_DIR/.codex-session-active"
+  rm -f "$TASK_DIR/.codex-session-plan" "$TASK_DIR/.codex-session-code"
+
+  log_success "Pipeline reset complete"
 }
 
 # Entry point
 case "${1:-run}" in
   run|"")
-    # Show current state and next action
-    init_state
-    show_next_action
+    show_status
     ;;
   status)
-    if ! check_state_readable; then exit 1; fi
-    echo "Current state: $(get_status)"
-    echo "Task ID: $(get_task_id)"
-    echo "Iteration: $(get_iteration)"
+    show_status
     ;;
   reset)
-    if ! acquire_lock; then
-      log_error "Cannot reset while another orchestrator is running"
-      exit 1
-    fi
-    setup_traps
-    log_warn "Resetting pipeline state..."
-    init_state
-    set_state "idle" ""
-    rm -f "$TASK_DIR/impl-result.json" "$TASK_DIR/review-result.json"
-    rm -f "$TASK_DIR/plan.json" "$TASK_DIR/plan-refined.json" "$TASK_DIR/plan-review.json"
-    rm -f "$TASK_DIR/current-task.json" "$TASK_DIR/user-request.txt" "$TASK_DIR/user-story.json"
-    rm -f "$TASK_DIR/internal-review-sonnet.json" "$TASK_DIR/internal-review-opus.json"
-    rm -f "$TASK_DIR/review-sonnet.json" "$TASK_DIR/review-opus.json" "$TASK_DIR/review-codex.json"
-    rm -f "$TASK_DIR/.codex-session-active"  # Clear Codex session marker
-    log_success "Pipeline reset to idle"
+    reset_pipeline
     ;;
   dry-run|--dry-run)
     run_dry_run
@@ -498,9 +453,9 @@ case "${1:-run}" in
     echo "Usage: $0 {run|status|reset|dry-run}"
     echo ""
     echo "Commands:"
-    echo "  run       Run the orchestrator (default)"
-    echo "  status    Show current pipeline state"
-    echo "  reset     Reset pipeline to idle"
+    echo "  run       Show current pipeline status (default)"
+    echo "  status    Show current pipeline status"
+    echo "  reset     Reset pipeline (remove all artifacts)"
     echo "  dry-run   Validate setup without running"
     exit 1
     ;;

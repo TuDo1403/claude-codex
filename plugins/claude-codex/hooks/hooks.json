@@ -1,22 +1,22 @@
 {
   "description": "Claude Codex hooks for pipeline enforcement",
   "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/implementation-stop-hook.js"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/state-guidance-hook.js"
+            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/guidance-hook.js"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/review-validator.js"
           }
         ]
       }

@@ -52,24 +52,25 @@ You are a senior fullstack developer with expertise in test-driven development a
 
 ## Implementation Process
 
-### Phase 0: Create Progress Tasks
+### Phase 0: Create Progress Tasks (MANDATORY)
 
-**IMPORTANT:** Before starting implementation, create milestone tasks for user visibility:
+**YOU MUST CREATE SUBTASKS WITH blockedBy BEFORE WRITING ANY CODE.**
 
+Requirements:
+- At least 3 subtasks for any plan with 5+ steps
+- Each subtask must have subject, description, and activeForm
+- Subtasks MUST have blockedBy dependencies (sequential execution)
+
+Example:
 ```
-TaskCreate: "Implement [domain/layer] - [description]"
-  - Group plan steps into 3-6 major milestones
-  - Use clear, user-friendly descriptions
-  - Set activeForm for spinner display (e.g., "Implementing backend domain...")
+T1 = TaskCreate(subject='Implement backend', activeForm='Implementing backend...')
+T2 = TaskCreate(subject='Implement API', activeForm='Implementing API...')
+TaskUpdate(T2, addBlockedBy: [T1])
+T3 = TaskCreate(subject='Implement frontend', activeForm='Implementing frontend...')
+TaskUpdate(T3, addBlockedBy: [T2])
 ```
 
-Example for a 25-step plan:
-```
-TaskCreate: subject="Implement backend domain", activeForm="Implementing backend domain..."
-TaskCreate: subject="Implement API orchestrator", activeForm="Implementing API orchestrator..."
-TaskCreate: subject="Implement frontend components", activeForm="Implementing frontend..."
-TaskCreate: subject="Configure Docker and tests", activeForm="Configuring infrastructure..."
-```
+WHY: User needs visibility into progress. Without subtasks, they see only 'Implementation - in_progress' with no indication of completion %.
 
 As you work, update tasks:
 - `TaskUpdate(taskId, status: "in_progress")` when starting a milestone
@@ -174,7 +175,7 @@ Verify output against patterns:
 - `success_pattern`: Must match for success
 - `failure_pattern`: Must NOT match for success
 
-## Iteration Protocol (Ralph Loop)
+## Iteration Protocol
 
 When tests or reviews fail:
 1. Read failure feedback from review files or test output
@@ -183,15 +184,7 @@ When tests or reviews fail:
 4. Re-run tests to verify fix
 5. Proceed to next review cycle
 
-Track iterations in `.task/loop-state.json`:
-```json
-{
-  "active": true,
-  "iteration": 3,
-  "max_iterations": 10,
-  "last_failure": "Test timeout in auth.test.ts"
-}
-```
+The hook manages iteration tracking via `.task/state.json`. Max 10 iterations per reviewer before escalating to user.
 
 ## Anti-Patterns to Avoid
 

@@ -108,7 +108,7 @@ The script outputs JSON events to stdout. Check the final event:
 ```json
 {
   "event": "complete",
-  "status": "approved|needs_changes|rejected",
+  "status": "approved|needs_changes|needs_clarification|rejected",
   "summary": "...",
   "needs_clarification": false,
   "output_file": ".task/review-codex.json",
@@ -116,9 +116,12 @@ The script outputs JSON events to stdout. Check the final event:
 }
 ```
 
-**Status values by review type:**
-- **Plan reviews:** `approved`, `needs_changes`
-- **Code reviews:** `approved`, `needs_changes`, `rejected`
+**Output file by review type:**
+- **Plan reviews:** `.task/review-codex.json`
+- **Code reviews:** `.task/code-review-codex.json`
+
+**Status values (all review types):**
+`approved`, `needs_changes`, `needs_clarification`, `rejected`
 
 ### Validation Error (exit code 1)
 ```json
@@ -144,11 +147,10 @@ The script outputs JSON events to stdout. Check the final event:
 
 ## Step 5: Report Results
 
-Read the output file and report the review result:
+Read the output file based on review type and report the result:
 
-```
-Read(".task/review-codex.json")
-```
+- **Plan reviews:** `Read(".task/review-codex.json")`
+- **Code reviews:** `Read(".task/code-review-codex.json")`
 
 **Report format:**
 
@@ -156,10 +158,10 @@ Read(".task/review-codex.json")
 ## Codex Review Complete
 
 **Review Type:** [plan|code]
-**Status:** [approved|needs_changes|rejected]
+**Status:** [approved|needs_changes|needs_clarification|rejected]
 
 ### Summary
-[summary from review-codex.json]
+[summary from output file]
 
 ### Issues Found
 [list issues if needs_changes or rejected]
@@ -167,7 +169,7 @@ Read(".task/review-codex.json")
 ### Clarification Questions
 [list questions if needs_clarification is true]
 
-**Output file:** .task/review-codex.json
+**Output file:** .task/review-codex.json (plan) or .task/code-review-codex.json (code)
 ```
 
 ---

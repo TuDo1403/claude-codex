@@ -2,12 +2,33 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Plan Review Result",
   "type": "object",
-  "required": ["status", "needs_clarification", "clarification_questions", "summary", "concerns", "reviewed_by", "reviewed_at"],
+  "required": ["status", "needs_clarification", "clarification_questions", "summary", "concerns", "requirements_coverage", "reviewed_by", "reviewed_at"],
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["approved", "needs_changes"],
+      "enum": ["approved", "needs_changes", "needs_clarification", "rejected"],
       "description": "Overall plan review decision"
+    },
+    "requirements_coverage": {
+      "type": "object",
+      "description": "Maps each acceptance criterion from user-story.json to plan steps that address it",
+      "required": ["mapping", "missing"],
+      "properties": {
+        "mapping": {
+          "type": "object",
+          "description": "Key: AC ID (e.g., 'AC1'), Value: plan step(s) that address it (array of step references)",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of AC IDs not covered by the plan"
+        }
+      },
+      "additionalProperties": false
     },
     "needs_clarification": {
       "type": "boolean",
@@ -54,7 +75,7 @@
     },
     "reviewed_by": {
       "type": "string",
-      "const": "codex",
+      "enum": ["plan-reviewer", "codex-reviewer"],
       "description": "Agent that performed the review"
     },
     "reviewed_at": {

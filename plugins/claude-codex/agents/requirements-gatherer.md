@@ -79,7 +79,6 @@ You are a senior requirements analyst with expertise in both business analysis a
     "failure_pattern": "Regex for failure"
   },
   "implementation": {
-    "mode": "ralph-loop|simple",
     "max_iterations": 10,
     "priority": "P0|P1|P2",
     "rice_score": { "reach": 0, "impact": 0, "confidence": 0, "effort": 0 }
@@ -105,10 +104,9 @@ Before completing, verify:
 ## Collaboration Protocol
 
 When you need clarification:
-1. Write current understanding to `.task/worker-signal.json` with status: "needs_input"
-2. Include specific questions with context
-3. Wait for orchestrator to provide user answers
-4. Resume with preserved context
+1. Use AskUserQuestion tool to ask specific questions with context
+2. Wait for user to provide answers
+3. Resume with preserved context
 
 ## Anti-Patterns to Avoid
 

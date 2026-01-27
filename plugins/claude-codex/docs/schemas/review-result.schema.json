@@ -4,7 +4,52 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["approved", "needs_changes", "rejected"]
+      "enum": ["approved", "needs_changes", "needs_clarification", "rejected"]
+    },
+    "acceptance_criteria_verification": {
+      "type": "object",
+      "description": "Verifies each acceptance criterion from user-story.json against the implementation",
+      "required": ["details"],
+      "properties": {
+        "total": {
+          "type": "number",
+          "description": "Total number of acceptance criteria"
+        },
+        "verified": {
+          "type": "number",
+          "description": "Number of ACs verified as IMPLEMENTED"
+        },
+        "missing": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of AC IDs not implemented"
+        },
+        "details": {
+          "type": "object",
+          "description": "Key: AC ID (e.g., 'AC1'), Value: verification result",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["IMPLEMENTED", "NOT_IMPLEMENTED", "PARTIAL"],
+                "description": "Implementation status for this AC"
+              },
+              "evidence": {
+                "type": "string",
+                "description": "Code location or test proving implementation"
+              },
+              "notes": {
+                "type": "string",
+                "description": "Additional notes about the verification"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "needs_clarification": {
       "type": "boolean",
@@ -136,6 +181,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["status", "needs_clarification", "clarification_questions", "summary", "issues", "checklist"],
+  "required": ["status", "needs_clarification", "clarification_questions", "summary", "issues", "checklist", "acceptance_criteria_verification"],
   "additionalProperties": false
 }
