@@ -1,0 +1,12 @@
+{
+  "smart_contract_secure": {
+    "enable_invariants": true,
+    "enable_slither": true,
+    "enable_semgrep": false,
+    "fuzz_runs": 5000,
+    "gate_strictness": "high",
+    "required_coverage": 80,
+    "max_iterations": 10,
+    "foundry_profile": "default"
+  }
+}

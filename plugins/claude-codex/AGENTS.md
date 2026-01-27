@@ -1,180 +1,363 @@
-# Code Reviewer Agent
+# Claude Codex Agents Reference
 
-You are the review agent in a multi-AI development pipeline.
+This document provides a consolidated reference for all agents in the Claude Codex plugin.
 
-## Your Two Roles
+## Agent Overview
 
-### Role 1: Plan Reviewer
-When state is `plan_reviewing`:
-- Read refined plan from `.task/plan-refined.json`
-- Review for completeness, feasibility, and potential issues
-- Write review to `.task/plan-review.json`
+### General Pipeline Agents
 
-### Role 2: Code Reviewer
-When state is `reviewing`:
-- Read implementation from `.task/impl-result.json`
-- Review code against standards
-- Write review to `.task/review-result.json`
+| Agent | File | Model | Purpose |
+|-------|------|-------|---------|
+| requirements-gatherer | `agents/requirements-gatherer.md` | opus | Business Analyst + PM for requirements elicitation |
+| planner | `agents/planner.md` | opus | Architect + Fullstack for implementation planning |
+| plan-reviewer | `agents/plan-reviewer.md` | sonnet/opus | Architecture + Security + QA plan review |
+| implementer | `agents/implementer.md` | sonnet | Fullstack + TDD implementation |
+| code-reviewer | `agents/code-reviewer.md` | sonnet/opus | Security + Performance code review |
+| codex-reviewer | `agents/codex-reviewer.md` | external | Codex final gate |
 
-## Shared Knowledge
-Read these docs for review criteria:
-- `docs/standards.md` - Coding standards and review checklist
-- `docs/workflow.md` - Review process and output format
+### Smart Contract Secure Pipeline Agents
 
-## Plan Review
+| Agent | File | Model | Gate | Purpose |
+|-------|------|-------|------|---------|
+| threat-modeler | `agents/threat-modeler.md` | opus | 0 | Threat model + invariant enumeration |
+| architect | `agents/architect.md` | opus | 1 | Architecture + storage layout design |
+| test-planner | `agents/test-planner.md` | opus/sonnet | 2 | Invariant → test mapping |
+| sc-implementer | `agents/sc-implementer.md` | sonnet | 3 | TDD Solidity implementation |
+| security-auditor | `agents/security-auditor.md` | opus | 4 | Static analysis + suppression governance |
+| perf-optimizer | `agents/perf-optimizer.md` | sonnet | 5 | Gas optimization with evidence |
+| sc-code-reviewer | `agents/sc-code-reviewer.md` | sonnet/opus | Final | Security-focused code review |
 
-### Input
-Read refined plan from: `.task/plan-refined.json`
+---
 
-### Review Criteria for Plans
-- **Completeness**: Are all requirements clearly defined?
-- **Feasibility**: Can this be implemented as described?
-- **Technical approach**: Is the approach sound?
-- **Complexity**: Is the estimated complexity accurate?
-- **Risks**: Are potential challenges identified?
-- **Security**: Are OWASP Top 10 considerations addressed?
-- **Over-engineering**: Is the approach too complex for the problem?
+## Agent Outputs
 
-### Output
-Write review to: `.task/plan-review.json`
+### General Pipeline
 
-Format:
-```json
-{
-  "status": "approved|needs_changes",
-  "summary": "Overall assessment of the plan",
-  "concerns": [
-    {
-      "severity": "error|warning|suggestion",
-      "area": "requirements|approach|complexity|risks|feasibility|security",
-      "message": "Description of concern",
-      "suggestion": "How to address this concern"
-    }
-  ],
-  "reviewed_by": "codex",
-  "reviewed_at": "ISO8601"
-}
+| Agent | Output File | Key Fields |
+|-------|-------------|------------|
+| requirements-gatherer | `.task/user-story.json` | acceptance_criteria, scope |
+| planner | `.task/plan-refined.json` | steps, risk_assessment |
+| plan-reviewer | `.task/review-{model}.json` | status, requirements_coverage |
+| implementer | `.task/impl-result.json` | status, files_modified |
+| code-reviewer | `.task/code-review-{model}.json` | status, acceptance_criteria_verification |
+| codex-reviewer | `.task/review-codex.json` | status (APPROVED/NEEDS_CHANGES) |
+
+### Smart Contract Secure Pipeline
+
+| Agent | Output Files | Key Artifacts |
+|-------|--------------|---------------|
+| threat-modeler | `docs/security/threat-model.md`, `.task/threat-model.json` | invariants, acceptance_criteria |
+| architect | `docs/architecture/design.md`, `.task/architecture.json` | storage_layout, external_call_policy |
+| test-planner | `docs/testing/test-plan.md`, `.task/test-plan.json` | invariant_mapping, attack_simulations |
+| sc-implementer | `.task/impl-result.json`, `reports/forge-test.log` | test_results, invariant_results |
+| security-auditor | `reports/slither.json`, `.task/static-analysis.json` | findings, suppressions |
+| perf-optimizer | `reports/gas-snapshots.md`, `.task/perf-result.json` | baseline, optimizations |
+| sc-code-reviewer | `.task/code-review-{model}.json` | exploit_analysis, invariant_coverage |
+
+---
+
+## Review Status Values
+
+All reviewer agents output one of these statuses:
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `approved` | No blocking issues | Proceed to next stage |
+| `needs_changes` | Issues found | Create fix task, same-reviewer re-review |
+| `needs_clarification` | Cannot evaluate | Provide clarification, same-reviewer re-review |
+| `rejected` | Fundamental issues | Escalate to user (Codex plan only) |
+
+---
+
+## Agent Invocation
+
+### Via Task Tool
+
+```
+Task(
+  subagent_type: "claude-codex:<agent-name>",
+  model: "<model>",
+  prompt: "[Instructions + context]"
+)
 ```
 
-### Decision Rules for Plans
-- Any `error` concern -> status: `needs_changes`
-- 2+ `warning` concerns -> status: `needs_changes`
-- Only `suggestion` concerns -> status: `approved`
+**Examples:**
 
-## Code Review
+```
+# General pipeline
+Task(subagent_type: "claude-codex:requirements-gatherer", model: "opus", prompt: "...")
+Task(subagent_type: "claude-codex:implementer", model: "sonnet", prompt: "...")
 
-### Input
-1. Read `.task/impl-result.json` for changed files list
-2. Read each changed file
-3. Read the original task from `.task/current-task.json`
-
-### Review Against
-- `docs/standards.md` - Use the review checklist section
-- Task requirements from `.task/current-task.json`
-
-### Review Checklist
-
-#### Security - OWASP Top 10 (severity: error)
-1. **Injection** - SQL, NoSQL, Command, LDAP injection
-2. **Broken Authentication** - Session management, credentials
-3. **Sensitive Data Exposure** - Encryption, secrets handling
-4. **XXE** - XML external entities
-5. **Broken Access Control** - Authorization, IDOR
-6. **Security Misconfiguration** - Default settings, debug mode
-7. **XSS** - Cross-site scripting
-8. **Insecure Deserialization** - Object injection
-9. **Vulnerable Components** - CVEs in dependencies
-10. **Insufficient Logging** - Security event logging
-
-#### Error Handling (severity: error/warning)
-- Unhandled exceptions
-- Sensitive data in error messages
-- Missing error handling for failure paths
-
-#### Resource Management (severity: error/warning)
-- Memory leaks (unclosed streams, listeners)
-- Connection leaks (database, HTTP, sockets)
-- Missing timeouts on external calls
-
-#### Configuration (severity: error/warning)
-- Hardcoded secrets or credentials
-- Environment-specific values hardcoded
-
-#### Code Quality (severity: warning/suggestion)
-- **Readability**: Naming, function size, nesting depth
-- **Simplification**: Over-complicated solutions, KISS
-- **Comments**: Missing or excessive documentation
-- **Reusability**: DRY violations, appropriate abstractions
-
-#### Concurrency (severity: error/warning)
-- Race conditions (TOCTOU)
-- Deadlock potential
-- Shared mutable state without synchronization
-
-#### Logging (severity: error/warning)
-- Secrets or PII in logs
-- Missing logging for critical operations
-
-#### Dependencies (severity: warning)
-- Known vulnerabilities (CVEs)
-- Unnecessary dependencies
-
-#### API Design (severity: warning/suggestion)
-- Missing input validation
-- Inconsistent response formats
-
-#### Backward Compatibility (severity: warning)
-- Breaking changes to public APIs
-- Missing migration strategy
-
-#### Testing (severity: warning/suggestion)
-- No tests for new functionality
-- Tests don't cover failure paths
-
-### Output
-Write to `.task/review-result.json`:
-
-```json
-{
-  "status": "approved|needs_changes|rejected",
-  "summary": "Brief overall assessment",
-  "checklist": {
-    "security_owasp": "PASS|WARN|FAIL",
-    "error_handling": "PASS|WARN|FAIL",
-    "resource_management": "PASS|WARN|FAIL",
-    "configuration": "PASS|WARN|FAIL",
-    "code_quality": "PASS|WARN|FAIL",
-    "concurrency": "PASS|WARN|FAIL|N/A",
-    "logging": "PASS|WARN|FAIL",
-    "dependencies": "PASS|WARN|FAIL",
-    "api_design": "PASS|WARN|FAIL|N/A",
-    "backward_compatibility": "PASS|WARN|FAIL|N/A",
-    "testing": "PASS|WARN|FAIL",
-    "over_engineering": "PASS|WARN|FAIL"
-  },
-  "issues": [
-    {
-      "id": "issue-1",
-      "severity": "error|warning|suggestion",
-      "category": "security|error_handling|resource|config|quality|concurrency|logging|deps|api|compat|test|over_engineering",
-      "file": "path/to/file.ts",
-      "line": 42,
-      "message": "Description of issue",
-      "suggestion": "How to fix"
-    }
-  ]
-}
+# Smart contract secure pipeline
+Task(subagent_type: "claude-codex:threat-modeler", model: "opus", prompt: "...")
+Task(subagent_type: "claude-codex:sc-implementer", model: "sonnet", prompt: "...")
 ```
 
-### Decision Rules for Code
-- Any `error` -> status: `needs_changes`
-- 2+ `warning` -> status: `needs_changes`
-- Only `suggestion` -> status: `approved`
+---
 
-## Over-Engineering Detection
-Flag as warning if you see:
-- Abstractions without multiple use cases
-- Premature optimization
-- Unnecessary configuration/flexibility
-- Complex patterns for simple problems
-- Excessive layers of indirection
+## Detailed Agent Specifications
+
+### requirements-gatherer (General)
+
+**Purpose:** Elicit requirements, produce user story with acceptance criteria.
+
+**Key Responsibilities:**
+- Probe for unstated needs and constraints
+- Define measurable acceptance criteria (Given/When/Then)
+- Bound scope (in/out of scope)
+- Identify test criteria for TDD
+
+**Output Schema:** See `agents/requirements-gatherer.md`
+
+---
+
+### threat-modeler (Smart Contract)
+
+**Purpose:** Create comprehensive threat model for fund-sensitive contracts.
+
+**Key Responsibilities:**
+- Enumerate assets at risk
+- Define trust assumptions and roles
+- Map attack surfaces and vectors
+- Enumerate invariants (IC-*, IS-*, IA-*, IT-*, IB-*)
+- Define acceptance criteria
+
+**Required Sections in Output:**
+- Assets
+- Trust assumptions
+- Attacker classes
+- Attack surfaces
+- Invariants (with formal IDs)
+- State machine
+- Acceptance criteria
+
+**Gate Blocking:** Missing invariants or acceptance criteria
+
+---
+
+### architect (Smart Contract)
+
+**Purpose:** Design secure, gas-efficient contract architecture.
+
+**Key Responsibilities:**
+- Define module boundaries
+- Document storage layout with slot assignments
+- Define external call policy
+- Design error/event model
+- Plan upgrade strategy
+
+**Required Sections in Output:**
+- Module boundaries
+- Storage layout (with slot numbers)
+- External call policy
+- Error model
+- Event model
+
+**Gate Blocking:** Missing storage layout or external call policy
+
+---
+
+### test-planner (Smart Contract)
+
+**Purpose:** Map all invariants to specific tests, plan attack simulations.
+
+**Key Responsibilities:**
+- Map each invariant to test type and file
+- Plan all 6 attack simulation categories
+- Define coverage targets
+- Create test file structure
+
+**Required Attack Simulations:**
+1. Reentrancy tests
+2. Fee-on-transfer / rebasing token tests
+3. Sandwich attack tests
+4. Oracle manipulation tests
+5. DoS / gas griefing tests
+6. Flash loan attack tests
+
+**Gate Blocking:** Any invariant without mapped test
+
+---
+
+### sc-implementer (Smart Contract)
+
+**Purpose:** Implement contracts with TDD discipline using Foundry.
+
+**Key Responsibilities:**
+- Write invariant tests first
+- Write unit tests
+- Implement minimal code to pass
+- Run fuzz and invariant tests
+- Save all test outputs to reports/
+
+**Test Order:**
+1. Invariant tests
+2. Unit tests
+3. Implementation
+4. Fuzz tests
+5. Full test suite
+
+**Gate Blocking:** forge test fails, missing test logs
+
+---
+
+### security-auditor (Smart Contract)
+
+**Purpose:** Run static analyzers, triage findings, manage suppressions.
+
+**Key Responsibilities:**
+- Run Slither (if enabled)
+- Run Semgrep (if enabled)
+- Categorize findings by severity
+- For High severity: fix or justify suppression
+- Document all suppressions with evidence
+
+**Suppression Requirements:**
+- Justification (why not vulnerable)
+- Evidence (tests, invariants, proofs)
+- Approval (who approved, when)
+
+**Gate Blocking:** Unsuppressed High severity findings
+
+---
+
+### perf-optimizer (Smart Contract)
+
+**Purpose:** Optimize gas usage with before/after evidence.
+
+**Key Responsibilities:**
+- Capture baseline gas measurements
+- Apply optimizations
+- If logic changed: rerun ALL tests
+- Capture after measurements
+- Generate diff and documentation
+
+**Evidence Requirements:**
+- Before snapshot
+- After snapshot
+- Diff summary
+- Test rerun evidence (if logic changed)
+
+**Gate Blocking:** Missing evidence, test failures after optimization
+
+---
+
+### sc-code-reviewer (Smart Contract)
+
+**Purpose:** Comprehensive security review for smart contracts.
+
+**Five Mandatory Checks:**
+1. Exploit path analysis
+2. Invariant coverage audit
+3. Storage/upgrade audit
+4. Economic/MEV attack audit
+5. Gas regression check
+
+**Key Outputs:**
+- Exploit paths (if any)
+- Invariant coverage status
+- Storage safety assessment
+- Economic risk assessment
+- Gas regression status
+
+---
+
+## Common Anti-Patterns
+
+### All Agents
+
+- Do not skip required outputs
+- Do not use bash for file writing (use Write tool)
+- Do not leave JSON invalid
+
+### Worker Agents (implementer, sc-implementer, perf-optimizer)
+
+- Do NOT interact with user
+- Do NOT ask "should I continue?"
+- Do NOT use AskUserQuestion
+- Just continue working
+
+### Reviewer Agents
+
+- Do NOT approve with unverified acceptance criteria
+- Do NOT skip any mandatory check
+- Do NOT provide vague feedback
+
+---
+
+## Hook Validation
+
+### SubagentStop Hooks
+
+| Hook | Validates |
+|------|-----------|
+| `review-validator.js` | AC coverage in reviews |
+| `gate-validator.js` | Gate artifacts exist and meet schema |
+
+### Validation Failures
+
+If hook returns `{"decision": "block", "reason": "..."}`:
+- Agent output is rejected
+- Orchestrator creates fix task
+- Same agent re-runs after fix
+
+---
+
+## Model Recommendations
+
+| Task Type | Recommended Model | Reason |
+|-----------|-------------------|--------|
+| Deep analysis | opus | Comprehensive reasoning |
+| Implementation | sonnet | Balanced speed/quality |
+| Quick review | sonnet | Fast iteration |
+| Final gate | codex (external) | Independent validation |
+
+---
+
+## Extending Agents
+
+### Creating a New Agent
+
+1. Create `agents/new-agent.md` with:
+   - YAML frontmatter (name, description, tools)
+   - Clear responsibilities
+   - Output format specification
+   - Quality checklist
+   - Anti-patterns
+
+2. Add to orchestrator task chain
+
+3. Add hook validation (if needed)
+
+4. Update this AGENTS.md reference
+
+### Agent File Structure
+
+```markdown
+---
+name: agent-name
+description: Brief description
+tools: Read, Write, Edit, Glob, Grep, Bash, ...
+disallowedTools: (optional) Edit, Write
+---
+
+# Agent Name
+
+[Description and responsibilities]
+
+## Process
+
+[Step-by-step process]
+
+## Output Format
+
+[JSON/Markdown output specification]
+
+## Quality Checklist
+
+[Verification checklist]
+
+## CRITICAL: Completion Requirements
+
+[What must be done before completing]
+```

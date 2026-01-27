@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Copy this file to your project root as .claude-codex.json",
+
+  "smart_contract_secure": {
+    "description": "Configuration for the smart-contract-secure pipeline",
+
+    "enable_invariants": {
+      "description": "Run invariant tests in Gate 3",
+      "type": "boolean",
+      "default": true
+    },
+
+    "enable_slither": {
+      "description": "Run Slither static analysis in Gate 4. Use these flag --exclude-optimization --exclude-low --exclude-medium --exclude-informational --exclude-dependencies --filter-paths 'dependencies/|script/|test/foundry/' --checklist",
+      "type": "boolean",
+      "default": true
+    },
+
+    "enable_semgrep": {
+      "description": "Run Semgrep static analysis in Gate 4",
+      "type": "boolean",
+      "default": false
+    },
+
+    "fuzz_runs": {
+      "description": "Number of fuzz runs for Foundry tests",
+      "type": "integer",
+      "default": 5000,
+      "minimum": 100,
+      "maximum": 100000
+    },
+
+    "gate_strictness": {
+      "description": "How strictly to enforce gates (high = block, medium = warn, low = ignore)",
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "default": "high"
+    },
+
+    "required_coverage": {
+      "description": "Minimum test coverage percentage required",
+      "type": "integer",
+      "default": 80,
+      "minimum": 0,
+      "maximum": 100
+    },
+
+    "max_iterations": {
+      "description": "Maximum fix iterations per gate before escalating to user",
+      "type": "integer",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 50
+    },
+
+    "foundry_profile": {
+      "description": "Foundry profile to use for tests",
+      "type": "string",
+      "default": "default"
+    },
+
+    "slither_args": {
+      "description": "Additional arguments for Slither",
+      "type": "string",
+      "default": ""
+    },
+
+    "semgrep_config": {
+      "description": "Semgrep config to use (p/solidity, auto, or custom path)",
+      "type": "string",
+      "default": "p/solidity"
+    }
+  }
+}
