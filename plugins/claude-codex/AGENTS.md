@@ -17,15 +17,24 @@ This document provides a consolidated reference for all agents in the Claude Cod
 
 ### Smart Contract Secure Pipeline Agents
 
+**NEW: Codex leads design, Opus reviews, Claude implements, Codex approves.**
+
 | Agent | File | Model | Gate | Purpose |
 |-------|------|-------|------|---------|
-| threat-modeler | `agents/threat-modeler.md` | opus | 0 | Threat model + invariant enumeration |
-| architect | `agents/architect.md` | opus | 1 | Architecture + storage layout design |
-| test-planner | `agents/test-planner.md` | opus/sonnet | 2 | Invariant → test mapping |
-| sc-implementer | `agents/sc-implementer.md` | sonnet | 3 | TDD Solidity implementation |
-| security-auditor | `agents/security-auditor.md` | opus | 4 | Static analysis + suppression governance |
-| perf-optimizer | `agents/perf-optimizer.md` | sonnet | 5 | Gas optimization with evidence |
+| codex-designer | `agents/codex-designer.md` | external | 0 | **Codex leads** - threat model, architecture, test plan |
+| opus-design-reviewer | `agents/opus-design-reviewer.md` | opus | 1 | Reviews Codex's design for gaps |
+| sc-implementer | `agents/sc-implementer.md` | sonnet | 2 | TDD Solidity implementation |
+| security-auditor | `agents/security-auditor.md` | opus | 3 | Static analysis + suppression governance |
+| perf-optimizer | `agents/perf-optimizer.md` | sonnet | 4 | Gas optimization with evidence |
 | sc-code-reviewer | `agents/sc-code-reviewer.md` | sonnet/opus | Final | Security-focused code review |
+| codex-reviewer | `agents/codex-reviewer.md` | external | Final | **Codex final gate** - must approve |
+
+**Legacy agents (still available but superseded by codex-designer):**
+| Agent | File | Model | Purpose |
+|-------|------|-------|---------|
+| threat-modeler | `agents/threat-modeler.md` | opus | Threat model (use codex-designer instead) |
+| architect | `agents/architect.md` | opus | Architecture (use codex-designer instead) |
+| test-planner | `agents/test-planner.md` | opus/sonnet | Test mapping (use codex-designer instead) |
 
 ---
 

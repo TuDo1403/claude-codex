@@ -78,10 +78,11 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
    - Focus on cross‑module and cross‑contract flows.
 
 3) **Map the attack surface**
-   - Enumerate entrypoints, callbacks, hooks, and external calls.
-   - Identify critical state transitions and shared storage.
-   - Build a privilege graph for all role‑gated paths.
-   - Quantify max loss bounds per fund‑moving path.
+    - Enumerate entrypoints, callbacks, hooks, and external calls.
+    - Identify critical state transitions and shared storage.
+    - Build a privilege graph for all role‑gated paths.
+    - Quantify max loss bounds per fund‑moving path.
+    - When consulting Local Attack Pattern Repos, read at least one concrete PoC/attack/test file per repo (not just README/templates).
 
 4) **Write invariants**
    - Total value conservation and accounting consistency.

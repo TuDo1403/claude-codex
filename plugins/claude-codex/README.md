@@ -22,7 +22,7 @@ Start the standard multi-AI pipeline for any development task.
 
 ### `/smart-contract-secure` - Fund-Sensitive Smart Contract Pipeline
 
-**Security-first pipeline for fund-sensitive smart contracts** with evidence-based gates, TDD enforcement, static analysis, and multi-review final approval.
+**Security-first pipeline where Codex leads design, Claude implements, and Codex gives final approval.**
 
 ```bash
 /claude-codex:smart-contract-secure <task description>
@@ -37,17 +37,25 @@ Start the standard multi-AI pipeline for any development task.
 
 ## Smart Contract Secure Pipeline
 
+### Role Order (NEW)
+
+1. **Codex** = Design/Strategy lead (produces ALL design artifacts)
+2. **Opus** = Design review (catches what Codex missed)
+3. **Claude (Sonnet)** = Implementation with TDD
+4. **Opus** = Static analysis interpretation
+5. **Sonnet** = Gas optimization
+6. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
+
 ### Gates
 
 | Gate | Name | Agent | Output |
 |------|------|-------|--------|
-| 0 | Threat Model | threat-modeler (opus) | `docs/security/threat-model.md` |
-| 1 | Architecture | architect (opus) | `docs/architecture/design.md` |
-| 2 | Test Plan | test-planner (opus) | `docs/testing/test-plan.md` |
-| 3 | Implementation | sc-implementer (sonnet) | Source + `reports/forge-test.log` |
-| 4 | Static Analysis | security-auditor (opus) | `reports/slither.json` |
-| 5 | Gas/Performance | perf-optimizer (sonnet) | `reports/gas-snapshots.md` |
-| Final | Multi-Review | sc-code-reviewer + codex | Sonnet → Opus → Codex |
+| 0 | **Codex Design** | codex-designer (external) | threat-model, design, test-plan |
+| 1 | Opus Design Review | opus-design-reviewer (opus) | `docs/reviews/design-review-opus.md` |
+| 2 | Implementation | sc-implementer (sonnet) | Source + `reports/forge-test.log` |
+| 3 | Static Analysis | security-auditor (opus) | `reports/slither.json` |
+| 4 | Gas/Performance | perf-optimizer (sonnet) | `reports/gas-snapshots.md` |
+| Final | Multi-Review | sc-code-reviewer + codex | Sonnet → Opus → **Codex** |
 
 ### Non-Negotiable Principles
 
