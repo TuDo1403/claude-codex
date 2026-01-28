@@ -158,6 +158,93 @@ your-project/
 
 ---
 
+### `/blind-audit-sc` - Blind-Audit Smart Contract Pipeline
+
+**Maximum security with strict blindness enforcement between reviewers.**
+
+```bash
+/claude-codex:blind-audit-sc <task description>
+```
+
+**Example:**
+```bash
+/claude-codex:blind-audit-sc "Implement a secure ERC-4626 vault with flash loan protection"
+```
+
+**Key Features:**
+- **Stage 3 (Spec Compliance)** reviews specs WITHOUT seeing code
+- **Stage 4 (Exploit Hunt)** reviews code WITHOUT seeing spec narrative
+- **Stage 5 (Red-Team Loop)** iterates until ALL HIGH/MED issues CLOSED
+- **Codex writes specs AND gives final approval**
+
+**Pipeline:**
+```
+Stage 1: Codex Spec Writing
+    ↓
+Stage 2: Spec Gate Validation
+    ↓
+Stage 3: Implementation + Tests
+    ↓
++---------+---------+
+|                   |
+v                   v
+Stage 3 Bundle    Stage 4 Bundle
+(NO CODE)         (NO SPEC PROSE)
+|                   |
+v                   v
+Spec Compliance   Exploit Hunt
+Review            Review
+|                   |
++---------+---------+
+          |
+          v
+    Stage 5: Red-Team Loop
+    (until all HIGH/MED CLOSED)
+          |
+          v
+    Stage 6: Codex Final Gate
+```
+
+**Blindness Rules:**
+
+| Stage | Sees | Does NOT See |
+|-------|------|--------------|
+| 3 (Spec Compliance) | Specs, test results | Source code, test code |
+| 4 (Exploit Hunt) | Code, invariants list | Spec prose, attack descriptions |
+
+**Configuration:**
+
+```json
+{
+  "blind_audit_sc": {
+    "enable_invariants": true,
+    "min_fuzz_runs": 5000,
+    "require_slither": true,
+    "blind_enforcement": "strict",
+    "max_redteam_iterations": 10,
+    "require_regression_tests": true
+  }
+}
+```
+
+**Artifacts Generated:**
+
+```
+.task/<run_id>/
+  ├── bundle-stage3/          # Specs + test summaries (NO code)
+  ├── bundle-stage4/          # Code + invariants (NO spec prose)
+  ├── bundle-final/           # Everything for final gate
+  └── run-metadata.json
+
+docs/reviews/
+  ├── spec-compliance-review.md
+  ├── exploit-hunt-review.md
+  ├── red-team-issue-log.md
+  └── final-codex-gate.md
+```
+
+---
+
 ## Domain-Specific Skills
 
 ### `/defi-audit-complex`
@@ -239,6 +326,16 @@ T9: Review - Codex            blockedBy: [T8]
 | perf-optimizer | sonnet | Gate 5: Gas optimization |
 | sc-code-reviewer | sonnet/opus | Final: Security review |
 | codex-reviewer | external | Final: Codex approval |
+
+**Blind-Audit Pipeline Agents:**
+
+| Agent | Model | Stage | Purpose |
+|-------|-------|-------|---------|
+| strategist-codex | external | 1 | Codex writes specs |
+| spec-compliance-reviewer | opus | 3 | Blind to code, validates specs |
+| exploit-hunter | opus | 4 | Blind to spec prose, hunts exploits |
+| redteam-verifier | sonnet | 5 | Verifies fixes, closes issues |
+| final-gate-codex | external | 6 | Codex final approval |
 
 ---
 
@@ -338,7 +435,25 @@ Copy from `${CLAUDE_PLUGIN_ROOT}/templates/` to your project:
 | Script | Purpose |
 |--------|---------|
 | `scripts/orchestrator.sh` | Initialize/reset pipeline |
-| `scripts/codex-review.js` | Codex CLI wrapper |
+| `scripts/codex-review.js` | Codex CLI wrapper for plan/code reviews |
+| `scripts/codex-design.js` | Codex CLI wrapper for design/spec generation |
+| `scripts/codex-final-gate.js` | Codex CLI wrapper for blind-audit final gate |
+| `scripts/generate-bundle-stage3.js` | Generate blind Stage 3 bundle (NO code) |
+| `scripts/generate-bundle-stage4.js` | Generate blind Stage 4 bundle (NO spec prose) |
+| `scripts/generate-bundle-final.js` | Generate complete final bundle |
+| `scripts/extract-invariants-list.js` | Extract numbered invariants from threat-model |
+| `scripts/extract-public-api.js` | Extract contract interfaces from source |
+
+### Hooks
+
+| Hook | Purpose |
+|------|---------|
+| `hooks/guidance-hook.js` | Phase guidance based on artifacts |
+| `hooks/review-validator.js` | Validates reviewer AC coverage |
+| `hooks/gate-validator.js` | Validates gate artifacts |
+| `hooks/bundle-validator.js` | Enforces blindness constraints |
+| `hooks/blind-audit-gate-validator.js` | Validates blind-audit pipeline gates |
+| `hooks/redteam-closure-validator.js` | Ensures all HIGH/MED CLOSED |
 
 ---
 

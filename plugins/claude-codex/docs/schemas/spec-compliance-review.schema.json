@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "spec-compliance-review.schema.json",
+  "title": "Spec Compliance Review",
+  "description": "Schema for Stage 3 blind spec compliance review output",
+  "type": "object",
+  "required": [
+    "id",
+    "reviewer",
+    "model",
+    "bundle",
+    "blindness_verified",
+    "decision",
+    "invariant_audit",
+    "acceptance_criteria_audit",
+    "attack_coverage",
+    "reviewed_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^spec-compliance-review-\\d{8}-\\d{6}$",
+      "description": "Unique review ID in format spec-compliance-review-YYYYMMDD-HHMMSS"
+    },
+    "reviewer": {
+      "type": "string",
+      "const": "spec-compliance-reviewer",
+      "description": "Agent that performed the review"
+    },
+    "model": {
+      "type": "string",
+      "enum": ["opus", "sonnet"],
+      "description": "Model used for review"
+    },
+    "bundle": {
+      "type": "string",
+      "const": "bundle-stage3",
+      "description": "Bundle reviewed (must be stage 3)"
+    },
+    "blindness_verified": {
+      "type": "boolean",
+      "const": true,
+      "description": "Confirms reviewer did not see code"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["APPROVED", "NEEDS_CHANGES", "NEEDS_CLARIFICATION"],
+      "description": "Review decision"
+    },
+    "invariant_audit": {
+      "type": "object",
+      "required": ["total", "ok", "missing_test", "test_failing", "ambiguous"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of invariants audited"
+        },
+        "ok": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Invariants with mapped and passing tests"
+        },
+        "missing_test": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Invariants without test mapping"
+        },
+        "test_not_found": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Invariants with test mentioned but not found"
+        },
+        "test_failing": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Invariants with failing tests"
+        },
+        "ambiguous": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Invariants with unclear mapping"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["invariant_id", "verdict"],
+            "properties": {
+              "invariant_id": {
+                "type": "string",
+                "pattern": "^(IC|IS|IA|IT|IB)-\\d+$"
+              },
+              "description": { "type": "string" },
+              "test_mapped": { "type": "boolean" },
+              "test_name": { "type": "string" },
+              "test_status": {
+                "type": "string",
+                "enum": ["PASS", "FAIL", "NOT_FOUND", "N/A"]
+              },
+              "verdict": {
+                "type": "string",
+                "enum": ["OK", "MISSING_TEST", "TEST_NOT_FOUND", "TEST_FAILING", "AMBIGUOUS"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "acceptance_criteria_audit": {
+      "type": "object",
+      "required": ["total", "measurable", "not_measurable"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total acceptance criteria audited"
+        },
+        "measurable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Criteria that are measurable"
+        },
+        "not_measurable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Criteria that are vague/unmeasurable"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ac_id", "measurable"],
+            "properties": {
+              "ac_id": {
+                "type": "string",
+                "pattern": "^AC-(SEC|FUNC)-\\d+$"
+              },
+              "description": { "type": "string" },
+              "measurable": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "spec_completeness": {
+      "type": "object",
+      "properties": {
+        "threat_model": {
+          "type": "object",
+          "properties": {
+            "assets_at_risk": { "type": "boolean" },
+            "trust_assumptions": { "type": "boolean" },
+            "attacker_classes": { "type": "boolean" },
+            "attack_surfaces": { "type": "boolean" },
+            "invariants": { "type": "boolean" },
+            "state_machine": { "type": "boolean" },
+            "acceptance_criteria": { "type": "boolean" }
+          }
+        },
+        "design": {
+          "type": "object",
+          "properties": {
+            "module_boundaries": { "type": "boolean" },
+            "storage_layout": { "type": "boolean" },
+            "external_call_policy": { "type": "boolean" },
+            "error_model": { "type": "boolean" },
+            "event_model": { "type": "boolean" },
+            "upgrade_strategy": { "type": "boolean" }
+          }
+        },
+        "test_plan": {
+          "type": "object",
+          "properties": {
+            "invariant_test_mapping": { "type": "boolean" },
+            "attack_simulations": { "type": "boolean" },
+            "coverage_targets": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "attack_coverage": {
+      "type": "object",
+      "required": ["reentrancy", "fee_on_transfer", "sandwich_mev", "oracle_manipulation", "dos_griefing", "flash_loan"],
+      "properties": {
+        "reentrancy": { "type": "boolean" },
+        "fee_on_transfer": { "type": "boolean" },
+        "sandwich_mev": { "type": "boolean" },
+        "oracle_manipulation": { "type": "boolean" },
+        "dos_griefing": { "type": "boolean" },
+        "flash_loan": { "type": "boolean" }
+      }
+    },
+    "required_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["prefix", "issue"],
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "const": "[CODEX]"
+          },
+          "issue": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": ["invariant", "acceptance_criteria", "completeness", "attack_coverage"]
+          }
+        }
+      }
+    },
+    "clarification_questions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": { "type": "string" },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  }
+}

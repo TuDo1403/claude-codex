@@ -8,5 +8,18 @@
     "required_coverage": 80,
     "max_iterations": 10,
     "foundry_profile": "default"
+  },
+  "blind_audit_sc": {
+    "enable_invariants": true,
+    "min_fuzz_runs": 5000,
+    "require_slither": true,
+    "require_semgrep": false,
+    "fail_on_static_high": true,
+    "fail_on_static_medium": true,
+    "bundle_mode": "diff",
+    "blind_enforcement": "strict",
+    "max_redteam_iterations": 10,
+    "require_regression_tests": true,
+    "gate_strictness": "high"
   }
 }

@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "final-gate.schema.json",
+  "title": "Final Gate Review",
+  "description": "Schema for Stage 6 Codex final gate review output",
+  "type": "object",
+  "required": [
+    "id",
+    "reviewer",
+    "bundle",
+    "decision",
+    "gates",
+    "redteam_summary",
+    "remaining_risks",
+    "deployment_ready",
+    "reviewed_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^final-gate-\\d{8}-\\d{6}$",
+      "description": "Unique review ID in format final-gate-YYYYMMDD-HHMMSS"
+    },
+    "reviewer": {
+      "type": "string",
+      "const": "final-gate-codex",
+      "description": "Agent that performed the review"
+    },
+    "bundle": {
+      "type": "string",
+      "const": "bundle-final",
+      "description": "Bundle reviewed (must be final)"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["APPROVED", "NEEDS_CHANGES", "NEEDS_CLARIFICATION"],
+      "description": "Final gate decision"
+    },
+    "gates": {
+      "type": "object",
+      "required": [
+        "spec_completeness",
+        "evidence_presence",
+        "static_analysis",
+        "blind_review_compliance",
+        "redteam_closure",
+        "gas_evidence"
+      ],
+      "properties": {
+        "spec_completeness": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate A: Spec completeness"
+        },
+        "evidence_presence": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate B: Test/fuzz/invariant evidence"
+        },
+        "static_analysis": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate C: Static analysis (Slither/Semgrep)"
+        },
+        "blind_review_compliance": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate D: Blind review bundles validated"
+        },
+        "redteam_closure": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate E: All HIGH/MED issues closed"
+        },
+        "gas_evidence": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Gate F: Gas snapshots present"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["PASS", "FAIL"]
+      }
+    },
+    "blind_review_summary": {
+      "type": "object",
+      "properties": {
+        "spec_compliance": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": ["APPROVED", "NEEDS_CHANGES", "NEEDS_CLARIFICATION"]
+            },
+            "issues_addressed": { "type": "boolean" },
+            "key_findings": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "exploit_hunt": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": ["APPROVED", "NEEDS_CHANGES", "NEEDS_CLARIFICATION"]
+            },
+            "exploits_found": {
+              "type": "object",
+              "properties": {
+                "high": { "type": "integer", "minimum": 0 },
+                "med": { "type": "integer", "minimum": 0 },
+                "low": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "issues_addressed": { "type": "boolean" },
+            "key_findings": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "redteam_summary": {
+      "type": "object",
+      "required": ["total_high", "total_med", "all_closed"],
+      "properties": {
+        "total_high": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total HIGH severity issues"
+        },
+        "total_med": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total MED severity issues"
+        },
+        "total_low": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total LOW severity issues"
+        },
+        "all_closed": {
+          "type": "boolean",
+          "description": "Whether all HIGH/MED are closed"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "severity": { "type": "string" },
+              "status": { "type": "string" },
+              "regression_test": { "type": "string" },
+              "test_verified": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "spot_check": {
+      "type": "object",
+      "properties": {
+        "areas_checked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "function": { "type": "string" },
+              "cei_pattern": { "type": "string", "enum": ["Followed", "Violated", "N/A"] },
+              "guards_present": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "critical_issues_found": { "type": "boolean" }
+      }
+    },
+    "remaining_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "description"],
+        "properties": {
+          "risk": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED", "LOW"],
+            "description": "For APPROVED, must all be LOW"
+          },
+          "description": { "type": "string" },
+          "mitigation": { "type": "string" }
+        }
+      }
+    },
+    "static_analysis_summary": {
+      "type": "object",
+      "properties": {
+        "slither": {
+          "type": "object",
+          "properties": {
+            "high": { "type": "integer" },
+            "high_suppressed": { "type": "integer" },
+            "medium": { "type": "integer" },
+            "medium_suppressed": { "type": "integer" },
+            "low": { "type": "integer" },
+            "informational": { "type": "integer" }
+          }
+        },
+        "semgrep": {
+          "type": "object",
+          "properties": {
+            "error": { "type": "integer" },
+            "warning": { "type": "integer" }
+          }
+        },
+        "unsuppressed_high_med": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "test_evidence": {
+      "type": "object",
+      "properties": {
+        "total_tests": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "fuzz_runs": { "type": "integer" },
+        "invariant_tests": {
+          "type": "string",
+          "enum": ["passed", "failed", "skipped"]
+        },
+        "line_coverage": { "type": "number" },
+        "branch_coverage": { "type": "number" }
+      }
+    },
+    "release_notes": {
+      "type": "object",
+      "properties": {
+        "security_guarantees": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "known_limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "deployment_recommendations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "deployment_ready": {
+      "type": "boolean",
+      "description": "True only if decision is APPROVED and all gates PASS"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  }
+}

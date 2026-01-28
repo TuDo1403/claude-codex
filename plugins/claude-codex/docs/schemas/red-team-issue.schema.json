@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "red-team-issue.schema.json",
+  "title": "Red-Team Issue Log",
+  "description": "Schema for Stage 5 red-team issue tracking",
+  "type": "object",
+  "required": [
+    "run_id",
+    "last_updated",
+    "summary",
+    "issues"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Pipeline run ID"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp of last update"
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_high", "total_med", "closed_high", "closed_med", "open", "iterations"],
+      "properties": {
+        "total_high": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total HIGH severity issues"
+        },
+        "total_med": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total MED severity issues"
+        },
+        "total_low": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total LOW severity issues"
+        },
+        "closed_high": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CLOSED HIGH severity issues"
+        },
+        "closed_med": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CLOSED MED severity issues"
+        },
+        "closed_low": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CLOSED LOW severity issues"
+        },
+        "open": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total OPEN issues"
+        },
+        "fixed_pending": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Issues in FIXED_PENDING_VERIFY state"
+        },
+        "iterations": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of red-team iterations"
+        }
+      }
+    },
+    "ready_for_final_gate": {
+      "type": "boolean",
+      "description": "True when all HIGH/MED are CLOSED"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "original_id", "severity", "title", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^RT-\\d{3}$",
+            "description": "Red-team issue ID in format RT-NNN"
+          },
+          "original_id": {
+            "type": "string",
+            "pattern": "^EH-\\d+$",
+            "description": "Original exploit hunt ID"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED", "LOW"],
+            "description": "Issue severity"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description"
+          },
+          "affected": {
+            "type": "string",
+            "description": "Affected contract::function"
+          },
+          "reproduction_steps": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Steps to reproduce"
+          },
+          "expected_fix": {
+            "type": "string",
+            "description": "Expected fix approach"
+          },
+          "regression_test": {
+            "type": ["string", "null"],
+            "description": "Path to regression test file"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["OPEN", "FIXED_PENDING_VERIFY", "CLOSED"],
+            "description": "Current status"
+          },
+          "fix_applied": {
+            "type": ["string", "null"],
+            "description": "Description of fix applied"
+          },
+          "fix_verified": {
+            "type": "boolean",
+            "description": "Whether fix has been verified"
+          },
+          "regression_test_passes": {
+            "type": "boolean",
+            "description": "Whether regression test passes"
+          },
+          "verifier_notes": {
+            "type": "string",
+            "description": "Notes from verifier"
+          },
+          "closed_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When issue was closed"
+          },
+          "iterations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "iteration": { "type": "integer" },
+                "date": { "type": "string", "format": "date-time" },
+                "action": { "type": "string" },
+                "result": { "type": "string" }
+              }
+            },
+            "description": "History of fix attempts"
+          }
+        }
+      }
+    },
+    "iteration_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "iteration": { "type": "integer" },
+          "date": { "type": "string", "format": "date-time" },
+          "changes": { "type": "string" },
+          "issues_resolved": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

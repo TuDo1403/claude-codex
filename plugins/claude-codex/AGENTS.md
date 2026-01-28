@@ -36,6 +36,22 @@ This document provides a consolidated reference for all agents in the Claude Cod
 | architect | `agents/architect.md` | opus | Architecture (use codex-designer instead) |
 | test-planner | `agents/test-planner.md` | opus/sonnet | Test mapping (use codex-designer instead) |
 
+### Blind-Audit Pipeline Agents
+
+**NEW: 6-stage pipeline with strict blindness enforcement for maximum security.**
+
+| Agent | File | Model | Stage | Purpose |
+|-------|------|-------|-------|---------|
+| strategist-codex | `agents/strategist-codex.md` | external | 1 | **Codex writes specs** - threat model, design, test plan |
+| spec-compliance-reviewer | `agents/spec-compliance-reviewer.md` | opus | 3 | **Blind to code** - validates specs vs test results |
+| exploit-hunter | `agents/exploit-hunter.md` | opus | 4 | **Blind to spec narrative** - hunts exploits in code |
+| redteam-verifier | `agents/redteam-verifier.md` | sonnet | 5 | Verifies fixes, closes HIGH/MED issues |
+| final-gate-codex | `agents/final-gate-codex.md` | external | 6 | **Codex final gate** - all gates must pass |
+
+**Blindness Rules:**
+- Stage 3 reviewer sees specs + test results, NO code
+- Stage 4 reviewer sees code + invariants list, NO spec narrative
+
 ---
 
 ## Agent Outputs
@@ -62,6 +78,16 @@ This document provides a consolidated reference for all agents in the Claude Cod
 | security-auditor | `reports/slither.json`, `.task/static-analysis.json` | findings, suppressions |
 | perf-optimizer | `reports/gas-snapshots.md`, `.task/perf-result.json` | baseline, optimizations |
 | sc-code-reviewer | `.task/code-review-{model}.json` | exploit_analysis, invariant_coverage |
+
+### Blind-Audit Pipeline
+
+| Agent | Output Files | Key Artifacts |
+|-------|--------------|---------------|
+| strategist-codex | `docs/security/threat-model.md`, `docs/architecture/design.md`, `docs/testing/test-plan.md`, `.task/codex-spec.json` | invariants, acceptance_criteria, attack_simulations |
+| spec-compliance-reviewer | `docs/reviews/spec-compliance-review.md`, `.task/spec-compliance-review.json` | invariant_audit, acceptance_criteria_audit, attack_coverage |
+| exploit-hunter | `docs/reviews/exploit-hunt-review.md`, `.task/exploit-hunt-review.json` | exploits_confirmed, invariant_coverage, required_tests |
+| redteam-verifier | `docs/reviews/red-team-issue-log.md`, `.task/red-team-issues.json` | issues, summary, ready_for_final_gate |
+| final-gate-codex | `docs/reviews/final-codex-gate.md`, `.task/final-gate.json` | gates, decision, deployment_ready |
 
 ---
 
