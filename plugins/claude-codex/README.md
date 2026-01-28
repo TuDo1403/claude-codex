@@ -435,6 +435,7 @@ Copy from `${CLAUDE_PLUGIN_ROOT}/templates/` to your project:
 | Script | Purpose |
 |--------|---------|
 | `scripts/orchestrator.sh` | Initialize/reset pipeline |
+| `scripts/codex-requirements.js` | Codex CLI wrapper for requirements gathering |
 | `scripts/codex-review.js` | Codex CLI wrapper for plan/code reviews |
 | `scripts/codex-design.js` | Codex CLI wrapper for design/spec generation |
 | `scripts/codex-final-gate.js` | Codex CLI wrapper for blind-audit final gate |

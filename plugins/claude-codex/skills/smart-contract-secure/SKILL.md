@@ -10,12 +10,13 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill
 You coordinate a **security-first pipeline** for fund-sensitive smart contracts with **Codex as design lead and final approver**.
 
 **Role Order:**
-1. **Codex** = Design/Strategy lead (threat model, architecture, test plan)
-2. **Opus** = Design review (architecture/security validation)
-3. **Claude (Sonnet)** = Implementation with TDD
-4. **Static Analysis** = Slither/Semgrep
-5. **Gas/Performance** = Optimization with evidence
-6. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
+1. **Codex** = Requirements gathering (user story, acceptance criteria)
+2. **Codex** = Design/Strategy lead (threat model, architecture, test plan)
+3. **Opus** = Design review (architecture/security validation)
+4. **Claude (Sonnet)** = Implementation with TDD
+5. **Static Analysis** = Slither/Semgrep
+6. **Gas/Performance** = Optimization with evidence
+7. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
 
 **Task directory:** `${CLAUDE_PROJECT_DIR}/.task/`
 **Reports directory:** `${CLAUDE_PROJECT_DIR}/reports/`
@@ -38,6 +39,8 @@ You coordinate a **security-first pipeline** for fund-sensitive smart contracts 
 ## Pipeline Architecture
 
 ```
+REQUIREMENTS: Codex Requirements Gathering
+    ↓ user-story.json (acceptance criteria, scope)
 GATE 0: Codex Design/Strategy
     ↓ threat-model.md, design.md, test-plan.md
 GATE 1: Opus Design Review
@@ -91,7 +94,8 @@ mkdir -p docs/security docs/architecture docs/testing docs/performance docs/revi
 ### Step 3: Create Task Chain with Dependencies
 
 ```
-TaskCreate: "GATE 0: Codex Design/Strategy"           → T1 (blockedBy: [])
+TaskCreate: "REQUIREMENTS: Codex Requirements"        → T0 (blockedBy: [])
+TaskCreate: "GATE 0: Codex Design/Strategy"           → T1 (blockedBy: [T0])
 TaskCreate: "GATE 1: Opus Design Review"              → T2 (blockedBy: [T1])
 TaskCreate: "GATE 2: Claude Implementation (TDD)"     → T3 (blockedBy: [T2])
 TaskCreate: "GATE 3: Static Analysis"                 → T4 (blockedBy: [T3])
@@ -104,6 +108,7 @@ TaskCreate: "FINAL: Code Review - Codex"              → T8 (blockedBy: [T7])
 Save to `.task/pipeline-tasks.json`:
 ```json
 {
+  "requirements_codex": "T0-id",
   "gate_0_codex_design": "T1-id",
   "gate_1_opus_review": "T2-id",
   "gate_2_implementation": "T3-id",
@@ -118,6 +123,43 @@ Save to `.task/pipeline-tasks.json`:
 ---
 
 ## Gate Specifications
+
+### REQUIREMENTS: Codex Requirements Gathering
+
+**Agent:** `requirements-gatherer-codex` (external - Codex CLI)
+**Purpose:** Codex gathers requirements, defines acceptance criteria, and bounds scope.
+
+**Output Artifacts:**
+
+1. **`.task/user-story.json`**
+   - Title and description (As a/I want/So that)
+   - Functional requirements
+   - Non-functional requirements (security, performance)
+   - Constraints
+   - Acceptance criteria (Given/When/Then format)
+   - Scope (in-scope, out-of-scope, assumptions)
+   - Test criteria for TDD
+
+**Invocation:**
+```
+Task(
+  subagent_type: "claude-codex:requirements-gatherer-codex",
+  prompt: "[User's task description]"
+)
+```
+
+The agent invokes:
+```bash
+node "{PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "{PLUGIN_ROOT}" --task "{TASK}"
+```
+
+**Block condition:** Hook fails if:
+- `user-story.json` missing
+- No acceptance criteria defined
+- No functional requirements
+- Scope not bounded
+
+---
 
 ### GATE 0: Codex Design/Strategy
 
@@ -391,6 +433,7 @@ Update: Next reviewer addBlockedBy: [T8.2]
 
 | Gate | Task | Agent | Model | Output |
 |------|------|-------|-------|--------|
+| Req | Requirements | requirements-gatherer-codex | external | user-story.json |
 | 0 | Codex Design | codex-designer | external | threat-model, design, test-plan |
 | 1 | Opus Review | opus-design-reviewer | opus | design-review-opus.md |
 | 2 | Implementation | sc-implementer | sonnet | impl-result.json |
@@ -403,10 +446,16 @@ Update: Next reviewer addBlockedBy: [T8.2]
 ### Spawning Workers
 
 ```
-# For Codex (external)
+# For Codex Requirements (external)
+Task(
+  subagent_type: "claude-codex:requirements-gatherer-codex",
+  prompt: "[User's task description]"
+)
+
+# For Codex Design (external)
 Task(
   subagent_type: "claude-codex:codex-designer",
-  prompt: "[Design instructions + user requirements]"
+  prompt: "[Design instructions + user requirements from user-story.json]"
 )
 
 # For Claude/Opus

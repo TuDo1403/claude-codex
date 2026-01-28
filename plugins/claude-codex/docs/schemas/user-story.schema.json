@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User Story Schema",
+  "description": "Schema for requirements gathering output",
+  "type": "object",
+  "required": ["id", "title", "description", "requirements", "acceptance_criteria", "scope"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^story-\\d{8}-\\d{6}$",
+      "description": "Unique identifier in format story-YYYYMMDD-HHMMSS"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 100,
+      "description": "Concise feature title"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 20,
+      "description": "User story in As a/I want/So that format"
+    },
+    "requirements": {
+      "type": "object",
+      "required": ["functional"],
+      "properties": {
+        "functional": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Core functionality requirements"
+        },
+        "non_functional": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Performance, security, usability requirements"
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Technical and business constraints"
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "scenario", "given", "when", "then"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^AC\\d+$",
+            "description": "Acceptance criteria ID (AC1, AC2, etc.)"
+          },
+          "scenario": {
+            "type": "string",
+            "description": "Scenario name"
+          },
+          "given": {
+            "type": "string",
+            "description": "Initial context"
+          },
+          "when": {
+            "type": "string",
+            "description": "Action taken"
+          },
+          "then": {
+            "type": "string",
+            "description": "Expected outcome"
+          }
+        }
+      },
+      "minItems": 1,
+      "description": "Acceptance criteria in Given/When/Then format"
+    },
+    "scope": {
+      "type": "object",
+      "required": ["in_scope", "out_of_scope"],
+      "properties": {
+        "in_scope": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Explicitly included items"
+        },
+        "out_of_scope": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicitly excluded items"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Documented assumptions"
+        }
+      }
+    },
+    "test_criteria": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Test commands for TDD validation"
+        },
+        "success_pattern": {
+          "type": "string",
+          "description": "Regex for success"
+        },
+        "failure_pattern": {
+          "type": "string",
+          "description": "Regex for failure"
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "properties": {
+        "max_iterations": {
+          "type": "integer",
+          "default": 10
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["P0", "P1", "P2"]
+        },
+        "rice_score": {
+          "type": "object",
+          "properties": {
+            "reach": { "type": "number" },
+            "impact": { "type": "number" },
+            "confidence": { "type": "number" },
+            "effort": { "type": "number" }
+          }
+        }
+      }
+    },
+    "questions_resolved": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of clarified questions"
+    },
+    "approved_by": {
+      "type": ["string", "null"],
+      "description": "Who approved the requirements"
+    },
+    "approved_at": {
+      "type": ["string", "null"],
+      "description": "ISO8601 timestamp of approval"
+    }
+  }
+}

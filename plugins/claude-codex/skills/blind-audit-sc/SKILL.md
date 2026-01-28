@@ -10,6 +10,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill
 You coordinate a **6-stage blind-audit pipeline** for fund-sensitive smart contracts with **strict blindness enforcement** between reviewers.
 
 **Key Blindness Rules:**
+- **Stage 0 (Requirements)** Codex gathers requirements with acceptance criteria
 - **Stage 3 (Spec Compliance)** reviews specs WITHOUT seeing code
 - **Stage 4 (Exploit Hunt)** reviews code WITHOUT seeing spec narrative
 - **Stage 5 (Red-Team Loop)** iterates until all HIGH/MED issues CLOSED
@@ -37,6 +38,9 @@ You coordinate a **6-stage blind-audit pipeline** for fund-sensitive smart contr
 ## Pipeline Architecture
 
 ```
+STAGE 0: Codex Requirements Gathering
+    | user-story.json (acceptance criteria, scope)
+    v
 STAGE 1: Codex Spec Writing (Strategist)
     | threat-model.md, design.md, test-plan.md
     v
@@ -77,7 +81,8 @@ STAGE 3: Spec Compliance Review     STAGE 4: Exploit Hunt Review
 ## Task Graph with Dependencies
 
 ```
-T1: codex_spec_write           (blockedBy: [])
+T0: codex_requirements         (blockedBy: [])
+T1: codex_spec_write           (blockedBy: [T0])
 T2: spec_gate_validate         (blockedBy: [T1])
 T3: claude_implement           (blockedBy: [T2])
 T4: run_tests_collect_reports  (blockedBy: [T3])
@@ -210,6 +215,7 @@ Write `.task/<run_id>/run-metadata.json`:
   "started_at": "ISO8601",
   "config": { ... },
   "stages": {
+    "requirements": { "status": "pending" },
     "spec_write": { "status": "pending" },
     "spec_validate": { "status": "pending" },
     "implement": { "status": "pending" },
@@ -224,7 +230,8 @@ Write `.task/<run_id>/run-metadata.json`:
 ### Step 4: Create Task Chain with Dependencies
 
 ```
-TaskCreate: "STAGE 1: Codex Spec Writing"              -> T1 (blockedBy: [])
+TaskCreate: "STAGE 0: Codex Requirements"              -> T0 (blockedBy: [])
+TaskCreate: "STAGE 1: Codex Spec Writing"              -> T1 (blockedBy: [T0])
 TaskCreate: "STAGE 2: Spec Gate Validation"            -> T2 (blockedBy: [T1])
 TaskCreate: "STAGE 3A: Claude Implementation (TDD)"    -> T3 (blockedBy: [T2])
 TaskCreate: "STAGE 3B: Run Tests & Collect Reports"    -> T4 (blockedBy: [T3])
@@ -241,6 +248,7 @@ Save to `.task/pipeline-tasks.json`:
 ```json
 {
   "run_id": "<run_id>",
+  "stage_0_requirements": "T0-id",
   "stage_1_spec_write": "T1-id",
   "stage_2_spec_validate": "T2-id",
   "stage_3a_implement": "T3-id",
@@ -257,6 +265,39 @@ Save to `.task/pipeline-tasks.json`:
 ---
 
 ## Stage Specifications
+
+### STAGE 0: Codex Requirements Gathering
+
+**Agent:** `requirements-gatherer-codex` (external - Codex CLI)
+**Purpose:** Codex gathers requirements, defines acceptance criteria, and bounds scope.
+
+**Output Artifacts:**
+
+1. **`.task/user-story.json`**
+   - Title and description (As a/I want/So that)
+   - Functional requirements
+   - Non-functional requirements (security, performance)
+   - Constraints
+   - Acceptance criteria (Given/When/Then format)
+   - Scope (in-scope, out-of-scope, assumptions)
+   - Test criteria for TDD
+
+**Invocation:**
+```
+Task(
+  subagent_type: "claude-codex:requirements-gatherer-codex",
+  prompt: "[User's task description]"
+)
+```
+
+The agent invokes:
+```bash
+node "{PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "{PLUGIN_ROOT}" --task "{TASK}"
+```
+
+**Block condition:** Missing user-story.json or incomplete acceptance criteria
+
+---
 
 ### STAGE 1: Codex Spec Writing
 
@@ -540,6 +581,7 @@ while pipeline not complete:
 
 | Stage | Task | Agent | Model | Output |
 |-------|------|-------|-------|--------|
+| 0 | Requirements | requirements-gatherer-codex | external | user-story.json |
 | 1 | Spec Writing | strategist-codex | external | threat-model, design, test-plan |
 | 3A | Implementation | sc-implementer | sonnet | impl-result.json |
 | 3 | Spec Compliance | spec-compliance-reviewer | opus | spec-compliance-review.md |
@@ -550,10 +592,16 @@ while pipeline not complete:
 ### Spawning Workers
 
 ```
-# For Codex (external)
+# For Codex Requirements (external)
+Task(
+  subagent_type: "claude-codex:requirements-gatherer-codex",
+  prompt: "[User's task description]"
+)
+
+# For Codex Spec Writing (external)
 Task(
   subagent_type: "claude-codex:strategist-codex",
-  prompt: "[Spec writing instructions + user requirements]"
+  prompt: "[Spec writing instructions + user requirements from user-story.json]"
 )
 
 # For Claude/Opus

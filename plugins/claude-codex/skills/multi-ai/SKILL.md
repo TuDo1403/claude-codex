@@ -175,7 +175,7 @@ fix_plan_sonnet_v2 → plan_review_sonnet_v3
 
 | Task | Agent | Model | Output File |
 |------|-------|-------|-------------|
-| Gather requirements | requirements-gatherer | opus | user-story.json |
+| Gather requirements | requirements-gatherer-codex | external | user-story.json |
 | Create plan | planner | opus | plan-refined.json |
 | Plan Review - Sonnet | plan-reviewer | sonnet | review-sonnet.json |
 | Plan Review - Opus | plan-reviewer | opus | review-opus.json |
@@ -192,6 +192,14 @@ Task(
   subagent_type: "claude-codex:<agent-name>",
   model: "<model>",
   prompt: "[Agent instructions] + [Context from .task/ files]"
+)
+```
+
+For Codex requirements gathering:
+```
+Task(
+  subagent_type: "claude-codex:requirements-gatherer-codex",
+  prompt: "[Task description for requirements]"
 )
 ```
 

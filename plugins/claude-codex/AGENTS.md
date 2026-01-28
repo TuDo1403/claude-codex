@@ -9,6 +9,7 @@ This document provides a consolidated reference for all agents in the Claude Cod
 | Agent | File | Model | Purpose |
 |-------|------|-------|---------|
 | requirements-gatherer | `agents/requirements-gatherer.md` | opus | Business Analyst + PM for requirements elicitation |
+| requirements-gatherer-codex | `agents/requirements-gatherer-codex.md` | external | **Codex-powered** requirements elicitation via CLI |
 | planner | `agents/planner.md` | opus | Architect + Fullstack for implementation planning |
 | plan-reviewer | `agents/plan-reviewer.md` | sonnet/opus | Architecture + Security + QA plan review |
 | implementer | `agents/implementer.md` | sonnet | Fullstack + TDD implementation |
@@ -143,6 +144,33 @@ Task(subagent_type: "claude-codex:sc-implementer", model: "sonnet", prompt: "...
 - Identify test criteria for TDD
 
 **Output Schema:** See `agents/requirements-gatherer.md`
+
+---
+
+### requirements-gatherer-codex (General - Codex)
+
+**Purpose:** Codex-powered requirements elicitation via CLI.
+
+**Key Responsibilities:**
+- Analyze task for ambiguities and unstated assumptions
+- Research existing codebase for context
+- Define measurable acceptance criteria (Given/When/Then)
+- Document scope boundaries (in/out of scope)
+- Identify test criteria for TDD
+
+**Invocation:** Via `scripts/codex-requirements.js`
+
+```bash
+node "{PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "{PLUGIN_ROOT}" --task "{TASK}"
+```
+
+**Output:** `.task/user-story.json`
+
+**Validation:** Script validates:
+- Required fields present (id, title, description, requirements, acceptance_criteria, scope)
+- At least one functional requirement
+- At least one acceptance criterion with Given/When/Then format
+- In-scope items defined
 
 ---
 
