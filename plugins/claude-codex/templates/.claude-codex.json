@@ -20,6 +20,19 @@
     "blind_enforcement": "strict",
     "max_redteam_iterations": 10,
     "require_regression_tests": true,
-    "gate_strictness": "high"
+    "gate_strictness": "high",
+    "adversarial": {
+      "adversarial_mode": true,
+      "min_attack_hypotheses": 8,
+      "min_economic_hypotheses": 2,
+      "min_dos_hypotheses": 2,
+      "min_refuted_hypotheses": 1,
+      "min_false_positives_invalidated": 3,
+      "dispute_max_rounds": 3,
+      "opus_model": "opus",
+      "codex_timeout_ms": 1200000,
+      "require_reproduction_artifacts": true,
+      "auto_create_rt_issues": true
+    }
   }
 }

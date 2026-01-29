@@ -1,19 +1,25 @@
 ---
 name: blind-audit-sc
-description: Blind-audit pipeline for fund-sensitive smart contracts. Enforces strict separation - spec reviewers cannot see code, exploit hunters cannot see spec narrative. Red-team loop until all HIGH/MED issues CLOSED.
+description: Blind-audit pipeline for fund-sensitive smart contracts. Enforces strict separation - spec reviewers cannot see code, exploit hunters cannot see spec narrative. Red-team loop until all HIGH/MED issues CLOSED. Includes Adversarial Codex ↔ Opus Mode.
 plugin-scoped: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Blind-Audit Smart Contract Pipeline
 
-You coordinate a **6-stage blind-audit pipeline** for fund-sensitive smart contracts with **strict blindness enforcement** between reviewers.
+You coordinate a **6-stage blind-audit pipeline** (with **Adversarial Mode** substages) for fund-sensitive smart contracts with **strict blindness enforcement** between reviewers.
 
 **Key Blindness Rules:**
 - **Stage 0 (Requirements)** Codex gathers requirements with acceptance criteria
 - **Stage 3 (Spec Compliance)** reviews specs WITHOUT seeing code
 - **Stage 4 (Exploit Hunt)** reviews code WITHOUT seeing spec narrative
+- **Stage 4A-4C (Adversarial Mode)** Opus and Codex work independently, then dispute
 - **Stage 5 (Red-Team Loop)** iterates until all HIGH/MED issues CLOSED
+
+**Adversarial Mode (Stages 4A-4C):**
+- **Stage 4A** Opus Contrarian Attack Plan (blind to spec prose AND Codex output)
+- **Stage 4B** Codex Deep Exploit Hunt (blind to spec prose AND Opus output)
+- **Stage 4C** Dispute Resolution Duel (sees both, resolves disagreements)
 
 **Task directory:** `${CLAUDE_PROJECT_DIR}/.task/`
 **Run bundles:** `${CLAUDE_PROJECT_DIR}/.task/<run_id>/`
@@ -64,16 +70,54 @@ STAGE 3: Spec Compliance Review     STAGE 4: Exploit Hunt Review
     +---------------+---------------+
                     |
                     v
-              STAGE 5: Red-Team Loop
-              (iterates until all HIGH/MED CLOSED)
+    +=================================+
+    |     ADVERSARIAL MODE (4A-4C)    |
+    +=================================+
+                    |
+    +---------------+---------------+
+    |                               |
+    v                               v
+BUNDLE-STAGE4A                BUNDLE-STAGE4B
+(NO spec prose)               (NO spec prose)
+(NO Codex output)             (NO Opus output)
+    |                               |
+    v                               v
+STAGE 4A: Opus Attack Plan    STAGE 4B: Codex Deep Exploit
+(Contrarian hypotheses)       (Deep paths + refutations)
+    |                               |
+    +---------------+---------------+
                     |
                     v
-              BUNDLE-FINAL
-              (complete bundle)
+              BUNDLE-STAGE4C
+              (Both reviews + code + invariants)
+              (NO spec prose)
                     |
                     v
-              STAGE 6: Codex Final Gate
-              (APPROVED required)
+              STAGE 4C: Dispute Resolution
+              (Opus=PROSECUTOR, Codex=DEFENDER)
+              |       |       |
+              v       v       v
+           CONFIRMED  DISPROVEN  UNCLEAR
+              |          |         |
+              v          |         v
+         RT Issue     (done)   Add Test Task
+              |                    |
+              +--------------------+
+              |                    |
+              v                    v
+    +-----------------+    (Rerun 4A+4B+4C)
+    |                 |         |
+    v                 |         |
+STAGE 5: Red-Team Loop <--------+
+(iterates until all HIGH/MED CLOSED)
+    |
+    v
+BUNDLE-FINAL
+(complete bundle)
+    |
+    v
+STAGE 6: Codex Final Gate
+(APPROVED required)
 ```
 
 ---
@@ -92,7 +136,27 @@ T7: spec_compliance_review     (blockedBy: [T4, T5])
     -> Loop if NEEDS_CHANGES: codex_spec_fix -> re-validate -> re-review
 T8: exploit_hunt_review        (blockedBy: [T6, T7])
     -> Loop if HIGH/MED issues: red_team_patch_game until all CLOSED
-T9: bundle_generate_final      (blockedBy: [T8])
+
+=== ADVERSARIAL MODE TASKS (if adversarial_mode: true) ===
+
+T8a: bundle_generate_stage4a    (blockedBy: [T4])
+T8b: bundle_generate_stage4b    (blockedBy: [T4])
+     NOTE: T8a and T8b MUST be isolated from each other
+T8c: opus_attack_plan           (blockedBy: [T8a])
+     Output: docs/reviews/opus-attack-plan.md
+T8d: codex_deep_exploit         (blockedBy: [T8b])
+     Output: docs/reviews/codex-deep-exploit-review.md
+     NOTE: MUST NOT see T8c output
+T8e: bundle_generate_stage4c    (blockedBy: [T8c, T8d])
+T8f: dispute_resolution         (blockedBy: [T8e])
+     Output: docs/reviews/dispute-resolution.md
+     -> If CONFIRMED: create RT issues, proceed to T8
+     -> If UNCLEAR: create add-test task, rerun T8a-T8f (max 3 rounds)
+     -> If all DISPROVEN: proceed to T9
+
+=== END ADVERSARIAL MODE ===
+
+T9: bundle_generate_final      (blockedBy: [T8, T8f])
 T10: codex_final_gate          (blockedBy: [T9])
 ```
 
@@ -152,6 +216,67 @@ T10: codex_final_gate          (blockedBy: [T9])
 
 ---
 
+## Adversarial Mode Blindness Rules
+
+### Stage 4A Bundle (Opus Attack Plan) - NO SPEC PROSE, NO CODEX OUTPUT
+
+**Script:** `scripts/generate-bundle-stage4a.js`
+
+**Includes:**
+- `invariants-list.md` (ONLY numbered invariants - NO prose)
+- `public-api.md` (interfaces only)
+- Full source code (`src/**/*.sol`)
+- Full test code (`test/**/*.sol`)
+- `slither-summary.md` (if available)
+
+**Excludes:**
+- `docs/security/threat-model.md` prose
+- `docs/architecture/design.md` narrative
+- `docs/reviews/codex-deep-exploit-review.md` (ISOLATION)
+- Any Codex output artifacts
+
+**Output:** `.task/<run_id>/bundle-stage4a/`
+
+### Stage 4B Bundle (Codex Deep Exploit) - NO SPEC PROSE, NO OPUS OUTPUT
+
+**Script:** `scripts/generate-bundle-stage4b.js`
+
+**Includes:**
+- `invariants-list.md` (ONLY numbered invariants - NO prose)
+- `public-api.md` (interfaces only)
+- Full source code (`src/**/*.sol`)
+- Full test code (`test/**/*.sol`)
+- `slither-summary.md` (if available)
+
+**Excludes:**
+- `docs/security/threat-model.md` prose
+- `docs/architecture/design.md` narrative
+- `docs/reviews/opus-attack-plan.md` (ISOLATION)
+- Any Opus output artifacts
+
+**Output:** `.task/<run_id>/bundle-stage4b/`
+
+### Stage 4C Bundle (Dispute Resolution) - NO SPEC PROSE, BOTH REVIEWS
+
+**Script:** `scripts/generate-bundle-stage4c.js`
+
+**Includes:**
+- `invariants-list.md` (ONLY numbered invariants - NO prose)
+- `public-api.md` (interfaces only)
+- Full source code (`src/**/*.sol`)
+- Full test code (`test/**/*.sol`)
+- `docs/reviews/opus-attack-plan.md` (NOW VISIBLE)
+- `docs/reviews/codex-deep-exploit-review.md` (NOW VISIBLE)
+- `slither-summary.md` (if available)
+
+**Excludes:**
+- `docs/security/threat-model.md` prose (STILL BLIND)
+- `docs/architecture/design.md` narrative (STILL BLIND)
+
+**Output:** `.task/<run_id>/bundle-stage4c/`
+
+---
+
 ## Gate Validations
 
 | Gate | Name | Validates | Hook |
@@ -181,10 +306,39 @@ Read `.claude-codex.json` from project root (or use defaults):
     "bundle_mode": "diff",
     "blind_enforcement": "strict",
     "max_redteam_iterations": 10,
-    "require_regression_tests": true
+    "require_regression_tests": true,
+    "gate_strictness": "high",
+    "adversarial": {
+      "adversarial_mode": true,
+      "min_attack_hypotheses": 8,
+      "min_economic_hypotheses": 2,
+      "min_dos_hypotheses": 2,
+      "min_refuted_hypotheses": 1,
+      "min_false_positives_invalidated": 3,
+      "dispute_max_rounds": 3,
+      "opus_model": "opus",
+      "codex_timeout_ms": 1200000,
+      "require_reproduction_artifacts": true,
+      "auto_create_rt_issues": true
+    }
   }
 }
 ```
+
+### Adversarial Mode Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `adversarial_mode` | `true` | Enable Adversarial Codex ↔ Opus Mode |
+| `min_attack_hypotheses` | `8` | Minimum total hypotheses from Opus |
+| `min_economic_hypotheses` | `2` | Minimum Economic/MEV hypotheses |
+| `min_dos_hypotheses` | `2` | Minimum DoS/Gas Grief hypotheses |
+| `min_refuted_hypotheses` | `1` | Minimum refuted hypotheses from Codex |
+| `min_false_positives_invalidated` | `3` | Minimum false positives invalidated |
+| `dispute_max_rounds` | `3` | Max rerun rounds for UNCLEAR disputes |
+| `codex_timeout_ms` | `1200000` | Codex CLI timeout (20 minutes) |
+| `require_reproduction_artifacts` | `true` | Require tests for all disputes |
+| `auto_create_rt_issues` | `true` | Auto-create RT issues for CONFIRMED |
 
 ---
 
@@ -477,6 +631,100 @@ Decision: APPROVED|NEEDS_CHANGES|NEEDS_CLARIFICATION
 
 ---
 
+---
+
+## Adversarial Mode Stages (4A-4C)
+
+### STAGE 4A: Opus Contrarian Attack Plan
+
+**Agent:** `opus-attack-planner` (opus)
+**Bundle:** `bundle-stage4a/` (NO spec prose, NO Codex output)
+
+**Purpose:** Opus generates adversarial attack hypotheses independently.
+
+**HARD REQUIREMENTS:**
+- Minimum 5 attack hypotheses (configurable via `min_attack_hypotheses`)
+- Minimum 2 Economic/MEV hypotheses (configurable via `min_economic_hypotheses`)
+- Minimum 2 DoS/Gas Grief hypotheses (configurable via `min_dos_hypotheses`)
+- Each hypothesis MUST have: preconditions, attack steps, invariant mapping, demonstration test
+
+**Output:** `docs/reviews/opus-attack-plan.md`
+
+**Artifact:** `.task/<run_id>/opus-attack-plan.json`
+
+**Invocation:**
+```
+Task(
+  subagent_type: "claude-codex:opus-attack-planner",
+  model: "opus",
+  prompt: "[Attack plan instructions + bundle path]"
+)
+```
+
+---
+
+### STAGE 4B: Codex Deep Exploit Hunt
+
+**Agent:** `codex-deep-exploit-hunter` (external - Codex CLI)
+**Bundle:** `bundle-stage4b/` (NO spec prose, NO Opus output)
+
+**Purpose:** Codex performs deep exploit analysis with cross-module reasoning.
+
+**HARD REQUIREMENTS:**
+- Minimum 1 refuted hypothesis with evidence (proves rigorous testing)
+- Minimum 3 false positive invalidations with code references
+- Must NOT see Opus attack plan (isolation enforced)
+
+**Output:** `docs/reviews/codex-deep-exploit-review.md`
+
+**Artifact:** `.task/<run_id>/codex-deep-exploit-review.json`
+
+**Invocation:**
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id>
+```
+
+---
+
+### STAGE 4C: Dispute Resolution Duel
+
+**Agent:** `dispute-resolver` (opus or sonnet)
+**Bundle:** `bundle-stage4c/` (NO spec prose, BOTH reviews visible)
+
+**Purpose:** Resolve disagreements between Opus and Codex via reproduction evidence.
+
+**ROLES:**
+- **Opus = PROSECUTOR**: Argues exploits are real, demands reproduction
+- **Codex = DEFENDER**: Tries to refute or narrow preconditions; if can't refute, proposes minimal patch
+
+**DISPUTE SET:**
+1. Top 5 risks from Opus attack plan
+2. Top 5 risks from Codex deep review
+3. Any risk where severity disagrees (HIGH/MED vs LOW/NONE)
+
+**VERDICT OPTIONS:**
+| Verdict | Meaning | Required Action |
+|---------|---------|-----------------|
+| CONFIRMED | Exploit is real | Create RT issue (HIGH/MED), proceed to Stage 5 |
+| DISPROVEN | Exploit blocked | Document refutation evidence |
+| UNCLEAR | Need more evidence | Create add-test task, rerun 4A+4B+4C |
+
+**REPRODUCTION ARTIFACTS (required for each dispute):**
+- Foundry regression test, OR
+- Invariant test, OR
+- Forked simulation plan
+
+**Output:** `docs/reviews/dispute-resolution.md`
+
+**Artifact:** `.task/<run_id>/dispute-resolution.json`
+
+**Loop Behavior:**
+- CONFIRMED disputes → Create RT issues, proceed to Stage 5
+- UNCLEAR disputes → Create add-test tasks, rerun 4A+4B+4C (max `dispute_max_rounds` iterations)
+- All DISPROVEN → Proceed to Stage 5 (may have no RT issues)
+
+---
+
 ### STAGE 5: Red-Team Loop
 
 **Purpose:** Iterate until ALL HIGH/MED issues from exploit hunt are CLOSED.
@@ -586,6 +834,9 @@ while pipeline not complete:
 | 3A | Implementation | sc-implementer | sonnet | impl-result.json |
 | 3 | Spec Compliance | spec-compliance-reviewer | opus | spec-compliance-review.md |
 | 4 | Exploit Hunt | exploit-hunter | opus | exploit-hunt-review.md |
+| **4A** | **Opus Attack Plan** | **opus-attack-planner** | **opus** | **opus-attack-plan.md** |
+| **4B** | **Codex Deep Exploit** | **codex-deep-exploit-hunter** | **external** | **codex-deep-exploit-review.md** |
+| **4C** | **Dispute Resolution** | **dispute-resolver** | **opus** | **dispute-resolution.md** |
 | 5 | Fix Verification | redteam-verifier | sonnet | red-team-issue-log.md |
 | 6 | Final Gate | final-gate-codex | external | final-codex-gate.md |
 
@@ -626,6 +877,26 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage3.js" --run-id <run_id>
 bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4.js" --run-id <run_id>
 ```
 
+### Generate Stage 4A Bundle (NO SPEC PROSE, NO CODEX OUTPUT)
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4a.js" --run-id <run_id>
+```
+
+### Generate Stage 4B Bundle (NO SPEC PROSE, NO OPUS OUTPUT)
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4b.js" --run-id <run_id>
+```
+
+### Generate Stage 4C Bundle (NO SPEC PROSE, BOTH REVIEWS)
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4c.js" --run-id <run_id>
+```
+
+### Invoke Codex Deep Exploit Hunt
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id> --timeout 1200000
+```
+
 ### Generate Final Bundle
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-final.js" --run-id <run_id>
@@ -661,6 +932,47 @@ For each HIGH/MED issue:
   Create: T8.N.2 "Verify RT-00N" (blockedBy: [T8.N.1])
 Create: T8.final "Red-Team Closure Check" (blockedBy: [all verify tasks])
 Update: T9 addBlockedBy: [T8.final]
+```
+
+### STAGE 4C (Dispute Resolution) has CONFIRMED disputes:
+```
+For each CONFIRMED HIGH/MED dispute:
+  Create RT issue in docs/reviews/red-team-issue-log.md
+  Add to .task/<run_id>/dispute-resolution.json
+Proceed to STAGE 5 (Red-Team Loop)
+```
+
+### STAGE 4C (Dispute Resolution) has UNCLEAR disputes:
+```
+For each UNCLEAR dispute:
+  Create: T-D{N}-test "Add test for D-{N}" (blockedBy: [T8f])
+  Create: T-D{N}-4a "Rerun Opus Attack Plan" (blockedBy: [T-D{N}-test])
+  Create: T-D{N}-4b "Rerun Codex Deep Exploit" (blockedBy: [T-D{N}-test])
+  Create: T-D{N}-4c "Rerun Dispute Resolution" (blockedBy: [T-D{N}-4a, T-D{N}-4b])
+
+If rerun_round >= dispute_max_rounds:
+  Escalate to user: "Max dispute rounds reached"
+```
+
+### Adversarial Loop Flow
+```
+STAGE 4A (Opus) ─────────────────────┐
+                                      │
+                                      ├──> STAGE 4C (Dispute)
+                                      │         │
+STAGE 4B (Codex) ────────────────────┘         │
+         ^                                      │
+         │                                      v
+         │    ┌─────────────────────────────────┤
+         │    │                                 │
+         │    v                                 v
+         │  CONFIRMED                      UNCLEAR
+         │    │                                 │
+         │    v                                 v
+         │  RT Issue ─> Stage 5           Add Test Task
+         │                                      │
+         └──────────────────────────────────────┘
+                      (max 3 rounds)
 ```
 
 ---
@@ -730,6 +1042,15 @@ If stuck:
 4. Inject a test HIGH severity issue and verify red-team loop triggers
 5. Verify final gate blocks until all HIGH/MED CLOSED
 
+### Test Adversarial Mode
+1. Verify Stage 4A bundle excludes Codex output (check `bundle-stage4a/MANIFEST.json`)
+2. Verify Stage 4B bundle excludes Opus output (check `bundle-stage4b/MANIFEST.json`)
+3. Verify Stage 4C bundle includes BOTH reviews (check `bundle-stage4c/reviews/`)
+4. Verify Opus attack plan has min 2 Economic/MEV + 2 DoS hypotheses
+5. Verify Codex review has min 1 refuted hypothesis + 3 false positive invalidations
+6. Verify CONFIRMED disputes create RT issues
+7. Verify UNCLEAR disputes trigger rerun (max 3 rounds)
+
 ### Artifact Verification
 | Stage | Expected Artifacts |
 |-------|-------------------|
@@ -737,5 +1058,19 @@ If stuck:
 | 3A | Code + tests, `reports/forge-test.log` |
 | 3 | `docs/reviews/spec-compliance-review.md` |
 | 4 | `docs/reviews/exploit-hunt-review.md` |
+| **4A** | **`docs/reviews/opus-attack-plan.md`**, **`.task/<run_id>/opus-attack-plan.json`** |
+| **4B** | **`docs/reviews/codex-deep-exploit-review.md`**, **`.task/<run_id>/codex-deep-exploit-review.json`** |
+| **4C** | **`docs/reviews/dispute-resolution.md`**, **`.task/<run_id>/dispute-resolution.json`** |
 | 5 | `docs/reviews/red-team-issue-log.md` |
 | 6 | `docs/reviews/final-codex-gate.md` |
+
+### Bundle Contents Verification
+
+| Bundle | MUST Include | MUST Exclude |
+|--------|--------------|--------------|
+| bundle-stage3 | threat-model.md, design.md, test-plan.md, test-summary.md | ALL .sol files |
+| bundle-stage4 | invariants-list.md, public-api.md, src/*.sol, test/*.sol | threat-model.md prose |
+| **bundle-stage4a** | invariants-list.md, public-api.md, src/*.sol, test/*.sol | threat-model.md prose, **Codex output** |
+| **bundle-stage4b** | invariants-list.md, public-api.md, src/*.sol, test/*.sol | threat-model.md prose, **Opus output** |
+| **bundle-stage4c** | invariants-list.md, opus-attack-plan.md, codex-deep-exploit-review.md | threat-model.md prose |
+| bundle-final | ALL from stage3+stage4+reviews+red-team-log | (none) |

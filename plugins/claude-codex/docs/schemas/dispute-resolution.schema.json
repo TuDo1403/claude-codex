@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "dispute-resolution.schema.json",
+  "title": "Dispute Resolution Report",
+  "description": "Schema for Stage 4C adversarial dispute resolution between Opus and Codex",
+  "type": "object",
+  "required": [
+    "id",
+    "stage",
+    "bundle",
+    "blindness_verified",
+    "disputes",
+    "dispute_details",
+    "generated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^dispute-resolution-\\d{8}-\\d{6}$",
+      "description": "Unique resolution ID in format dispute-resolution-YYYYMMDD-HHMMSS"
+    },
+    "stage": {
+      "type": "string",
+      "const": "4C",
+      "description": "Pipeline stage"
+    },
+    "bundle": {
+      "type": "string",
+      "const": "bundle-stage4c",
+      "description": "Bundle used for resolution"
+    },
+    "blindness_verified": {
+      "type": "boolean",
+      "const": true,
+      "description": "Confirms spec prose was not seen"
+    },
+    "disputes": {
+      "type": "object",
+      "required": ["total", "confirmed_high", "confirmed_med", "disproven", "unclear"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total disputes"
+        },
+        "confirmed_high": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CONFIRMED HIGH severity disputes"
+        },
+        "confirmed_med": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "CONFIRMED MED severity disputes"
+        },
+        "disproven": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DISPROVEN disputes"
+        },
+        "unclear": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "UNCLEAR disputes (trigger rerun)"
+        }
+      }
+    },
+    "dispute_details": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "opus_source", "codex_source", "verdict"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^D-\\d+$",
+            "description": "Dispute ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Dispute title"
+          },
+          "opus_source": {
+            "type": ["string", "null"],
+            "description": "Source hypothesis from Opus (ECON-N, DOS-N, OTHER-N) or null"
+          },
+          "codex_source": {
+            "type": ["string", "null"],
+            "description": "Source finding from Codex (CEH-N, FP-N) or null"
+          },
+          "opus_severity": {
+            "type": ["string", "null"],
+            "enum": ["HIGH", "MED", "LOW", null],
+            "description": "Opus severity assessment"
+          },
+          "codex_severity": {
+            "type": ["string", "null"],
+            "enum": ["HIGH", "MED", "LOW", "NONE", null],
+            "description": "Codex severity assessment"
+          },
+          "disagreement": {
+            "type": "string",
+            "description": "What they disagree on"
+          },
+          "opus_argument": {
+            "type": "string",
+            "description": "Opus (prosecutor) argument"
+          },
+          "codex_argument": {
+            "type": "string",
+            "description": "Codex (defender) argument"
+          },
+          "reproduction_artifact": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["foundry_test", "invariant_test", "fork_simulation", "pending"],
+                "description": "Type of reproduction artifact"
+              },
+              "test_file": {
+                "type": "string",
+                "description": "Path to test file"
+              },
+              "test_function": {
+                "type": "string",
+                "description": "Test function name"
+              },
+              "code": {
+                "type": "string",
+                "description": "Test code snippet"
+              }
+            }
+          },
+          "evidence_evaluation": {
+            "type": "object",
+            "properties": {
+              "opus_evidence": {
+                "type": "string",
+                "description": "Summary of Opus evidence"
+              },
+              "codex_evidence": {
+                "type": "string",
+                "description": "Summary of Codex evidence"
+              }
+            }
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["CONFIRMED", "DISPROVEN", "UNCLEAR"],
+            "description": "Final verdict"
+          },
+          "justification": {
+            "type": "string",
+            "description": "Reason for the verdict"
+          },
+          "red_team_issue": {
+            "type": ["string", "null"],
+            "pattern": "^RT-\\d{3}$",
+            "description": "Red-team issue ID if CONFIRMED"
+          },
+          "add_test_task": {
+            "type": ["string", "null"],
+            "description": "Task ID if UNCLEAR"
+          },
+          "refutation_evidence": {
+            "type": "string",
+            "description": "Code reference if DISPROVEN"
+          }
+        }
+      }
+    },
+    "red_team_issues_created": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "dispute", "severity"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^RT-\\d{3}$",
+            "description": "Red-team issue ID"
+          },
+          "dispute": {
+            "type": "string",
+            "pattern": "^D-\\d+$",
+            "description": "Source dispute ID"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED"],
+            "description": "Issue severity"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          }
+        }
+      },
+      "description": "Red-team issues created from CONFIRMED disputes"
+    },
+    "unclear_tasks_created": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task", "dispute", "test_required"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Task ID"
+          },
+          "dispute": {
+            "type": "string",
+            "pattern": "^D-\\d+$",
+            "description": "Source dispute ID"
+          },
+          "test_required": {
+            "type": "string",
+            "description": "Path to required test file"
+          }
+        }
+      },
+      "description": "Add-test tasks created for UNCLEAR disputes"
+    },
+    "rerun_required": {
+      "type": "boolean",
+      "description": "True if UNCLEAR disputes exist and rerun needed"
+    },
+    "rerun_round": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Current rerun round (0 = first run)"
+    },
+    "statistics": {
+      "type": "object",
+      "properties": {
+        "opus_only_findings": {
+          "type": "integer",
+          "description": "Issues only Opus found"
+        },
+        "codex_only_findings": {
+          "type": "integer",
+          "description": "Issues only Codex found"
+        },
+        "both_agreed": {
+          "type": "integer",
+          "description": "Issues both identified"
+        },
+        "disagreements_resolved": {
+          "type": "integer",
+          "description": "Total disagreements resolved"
+        }
+      },
+      "description": "Adversarial mode effectiveness statistics"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  },
+  "additionalProperties": false
+}

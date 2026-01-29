@@ -47,6 +47,25 @@ const SPEC_PROSE_PATTERNS = [
   /\|\s*Entry Point\s*\|\s*Risk Level\s*\|/i  // Attack surface table
 ];
 
+// Patterns that indicate Opus output (for Stage 4B isolation)
+const OPUS_OUTPUT_PATTERNS = [
+  /Opus Contrarian Attack Plan/i,
+  /\[ECON-\d+\]/,
+  /\[DOS-\d+\]/,
+  /opus-attack-planner/i,
+  /bundle-stage4a/i
+];
+
+// Patterns that indicate Codex deep exploit output (for Stage 4A isolation)
+const CODEX_DEEP_OUTPUT_PATTERNS = [
+  /Codex Deep Exploit/i,
+  /\[CEH-\d+\]/,
+  /\[REF-\d+\]/,
+  /\[FP-\d+\]/,
+  /codex-deep-exploit-hunter/i,
+  /bundle-stage4b/i
+];
+
 function readFile(filePath) {
   try {
     if (!existsSync(filePath)) return null;
@@ -223,6 +242,232 @@ function validateStage4Bundle(bundleDir) {
 }
 
 /**
+ * Validate Stage 4A bundle (NO SPEC PROSE, NO CODEX OUTPUT)
+ */
+function validateStage4ABundle(bundleDir) {
+  const violations = [];
+
+  function checkDir(dir) {
+    if (!existsSync(dir)) return;
+
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (['src', 'test'].includes(entry.name)) continue;
+        checkDir(fullPath);
+      } else if (entry.isFile()) {
+        // Check for Codex output files (ISOLATION)
+        if (entry.name.includes('codex-deep-exploit')) {
+          violations.push({
+            type: 'CODEX_OUTPUT_FILE',
+            file: fullPath,
+            message: `Stage 4A bundle contains Codex output file: ${entry.name}`
+          });
+          continue;
+        }
+
+        // Check for forbidden spec files
+        const forbiddenFiles = ['threat-model.md', 'design.md', 'test-plan.md'];
+        if (forbiddenFiles.includes(entry.name)) {
+          violations.push({
+            type: 'SPEC_FILE',
+            file: fullPath,
+            message: `Stage 4A bundle contains spec file: ${entry.name}`
+          });
+          continue;
+        }
+
+        // Check content
+        if (!fullPath.includes('/src/') && !fullPath.includes('/test/')) {
+          const content = readFile(fullPath);
+          if (content) {
+            // Check for spec prose
+            const proseResult = containsSpecProse(content);
+            if (proseResult.hasProse) {
+              violations.push({
+                type: 'SPEC_PROSE',
+                file: fullPath,
+                pattern: proseResult.pattern,
+                message: `Stage 4A file contains spec prose: ${entry.name}`
+              });
+            }
+
+            // Check for Codex output patterns (ISOLATION)
+            for (const pattern of CODEX_DEEP_OUTPUT_PATTERNS) {
+              if (pattern.test(content)) {
+                violations.push({
+                  type: 'CODEX_OUTPUT_CONTENT',
+                  file: fullPath,
+                  pattern: pattern.toString(),
+                  message: `Stage 4A file contains Codex output: ${entry.name}`
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  checkDir(bundleDir);
+  return violations;
+}
+
+/**
+ * Validate Stage 4B bundle (NO SPEC PROSE, NO OPUS OUTPUT)
+ */
+function validateStage4BBundle(bundleDir) {
+  const violations = [];
+
+  function checkDir(dir) {
+    if (!existsSync(dir)) return;
+
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (['src', 'test'].includes(entry.name)) continue;
+        checkDir(fullPath);
+      } else if (entry.isFile()) {
+        // Check for Opus output files (ISOLATION)
+        if (entry.name.includes('opus-attack-plan')) {
+          violations.push({
+            type: 'OPUS_OUTPUT_FILE',
+            file: fullPath,
+            message: `Stage 4B bundle contains Opus output file: ${entry.name}`
+          });
+          continue;
+        }
+
+        // Check for forbidden spec files
+        const forbiddenFiles = ['threat-model.md', 'design.md', 'test-plan.md'];
+        if (forbiddenFiles.includes(entry.name)) {
+          violations.push({
+            type: 'SPEC_FILE',
+            file: fullPath,
+            message: `Stage 4B bundle contains spec file: ${entry.name}`
+          });
+          continue;
+        }
+
+        // Check content
+        if (!fullPath.includes('/src/') && !fullPath.includes('/test/')) {
+          const content = readFile(fullPath);
+          if (content) {
+            // Check for spec prose
+            const proseResult = containsSpecProse(content);
+            if (proseResult.hasProse) {
+              violations.push({
+                type: 'SPEC_PROSE',
+                file: fullPath,
+                pattern: proseResult.pattern,
+                message: `Stage 4B file contains spec prose: ${entry.name}`
+              });
+            }
+
+            // Check for Opus output patterns (ISOLATION)
+            for (const pattern of OPUS_OUTPUT_PATTERNS) {
+              if (pattern.test(content)) {
+                violations.push({
+                  type: 'OPUS_OUTPUT_CONTENT',
+                  file: fullPath,
+                  pattern: pattern.toString(),
+                  message: `Stage 4B file contains Opus output: ${entry.name}`
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  checkDir(bundleDir);
+  return violations;
+}
+
+/**
+ * Validate Stage 4C bundle (NO SPEC PROSE, BOTH REVIEWS REQUIRED)
+ */
+function validateStage4CBundle(bundleDir) {
+  const violations = [];
+  let hasOpusReview = false;
+  let hasCodexReview = false;
+
+  function checkDir(dir) {
+    if (!existsSync(dir)) return;
+
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (['src', 'test', 'reviews'].includes(entry.name)) {
+          if (entry.name === 'reviews') {
+            // Check for required reviews
+            const reviewEntries = readdirSync(fullPath);
+            hasOpusReview = reviewEntries.some(f => f.includes('opus-attack-plan'));
+            hasCodexReview = reviewEntries.some(f => f.includes('codex-deep-exploit'));
+          }
+          continue;
+        }
+        checkDir(fullPath);
+      } else if (entry.isFile()) {
+        // Check for forbidden spec files (in non-reviews dir)
+        const forbiddenFiles = ['threat-model.md', 'design.md', 'test-plan.md'];
+        if (!fullPath.includes('/reviews/') && forbiddenFiles.includes(entry.name)) {
+          violations.push({
+            type: 'SPEC_FILE',
+            file: fullPath,
+            message: `Stage 4C bundle contains spec file: ${entry.name}`
+          });
+          continue;
+        }
+
+        // Check content for spec prose (skip reviews/)
+        if (!fullPath.includes('/src/') && !fullPath.includes('/test/') && !fullPath.includes('/reviews/')) {
+          const content = readFile(fullPath);
+          if (content) {
+            const proseResult = containsSpecProse(content);
+            if (proseResult.hasProse) {
+              violations.push({
+                type: 'SPEC_PROSE',
+                file: fullPath,
+                pattern: proseResult.pattern,
+                message: `Stage 4C file contains spec prose: ${entry.name}`
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  checkDir(bundleDir);
+
+  // Verify both reviews are present
+  if (!hasOpusReview) {
+    violations.push({
+      type: 'MISSING_REVIEW',
+      message: 'Stage 4C bundle missing Opus attack plan review'
+    });
+  }
+  if (!hasCodexReview) {
+    violations.push({
+      type: 'MISSING_REVIEW',
+      message: 'Stage 4C bundle missing Codex deep exploit review'
+    });
+  }
+
+  return violations;
+}
+
+/**
  * Load blind-audit config
  */
 function loadConfig() {
@@ -295,6 +540,27 @@ async function main() {
     allViolations.push(...stage4Violations);
   }
 
+  // Validate Stage 4A bundle if it exists (Adversarial Mode)
+  const stage4aDir = join(runDir, 'bundle-stage4a');
+  if (existsSync(stage4aDir)) {
+    const stage4aViolations = validateStage4ABundle(stage4aDir);
+    allViolations.push(...stage4aViolations);
+  }
+
+  // Validate Stage 4B bundle if it exists (Adversarial Mode)
+  const stage4bDir = join(runDir, 'bundle-stage4b');
+  if (existsSync(stage4bDir)) {
+    const stage4bViolations = validateStage4BBundle(stage4bDir);
+    allViolations.push(...stage4bViolations);
+  }
+
+  // Validate Stage 4C bundle if it exists (Adversarial Mode)
+  const stage4cDir = join(runDir, 'bundle-stage4c');
+  if (existsSync(stage4cDir)) {
+    const stage4cViolations = validateStage4CBundle(stage4cDir);
+    allViolations.push(...stage4cViolations);
+  }
+
   if (allViolations.length > 0) {
     const errorMsg = `BLINDNESS VIOLATION (Gate C): ${allViolations.length} violations found:\n` +
       allViolations.map(v => `  - ${v.message}`).join('\n');
@@ -324,8 +590,13 @@ if (import.meta.main) {
 export {
   validateStage3Bundle,
   validateStage4Bundle,
+  validateStage4ABundle,
+  validateStage4BBundle,
+  validateStage4CBundle,
   containsCode,
   containsSpecProse,
   CODE_PATTERNS,
-  SPEC_PROSE_PATTERNS
+  SPEC_PROSE_PATTERNS,
+  OPUS_OUTPUT_PATTERNS,
+  CODEX_DEEP_OUTPUT_PATTERNS
 };

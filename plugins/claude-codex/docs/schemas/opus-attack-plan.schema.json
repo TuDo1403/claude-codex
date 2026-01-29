@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "opus-attack-plan.schema.json",
+  "title": "Opus Contrarian Attack Plan",
+  "description": "Schema for Stage 4A Opus attack hypothesis generation (adversarial mode)",
+  "type": "object",
+  "required": [
+    "id",
+    "reviewer",
+    "model",
+    "bundle",
+    "blindness_verified",
+    "hypotheses",
+    "attack_hypotheses",
+    "top_5_priority",
+    "generated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^opus-attack-plan-\\d{8}-\\d{6}$",
+      "description": "Unique plan ID in format opus-attack-plan-YYYYMMDD-HHMMSS"
+    },
+    "reviewer": {
+      "type": "string",
+      "const": "opus-attack-planner",
+      "description": "Agent that generated the plan"
+    },
+    "model": {
+      "type": "string",
+      "const": "opus",
+      "description": "Model used (must be opus)"
+    },
+    "bundle": {
+      "type": "string",
+      "const": "bundle-stage4a",
+      "description": "Bundle reviewed (must be stage 4a)"
+    },
+    "blindness_verified": {
+      "type": "boolean",
+      "const": true,
+      "description": "Confirms planner did not see spec prose"
+    },
+    "hypotheses": {
+      "type": "object",
+      "required": ["total", "economic_mev", "dos_gas_grief", "other"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 5,
+          "description": "Total hypotheses (min 5 required)"
+        },
+        "economic_mev": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "Economic/MEV hypotheses (min 2 required)"
+        },
+        "dos_gas_grief": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "DoS/Gas grief hypotheses (min 2 required)"
+        },
+        "other": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Other attack type hypotheses"
+        }
+      }
+    },
+    "attack_hypotheses": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "name",
+          "severity",
+          "preconditions",
+          "attack_steps",
+          "invariant_violated",
+          "demonstration_test"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(ECON|DOS|OTHER)-\\d+$",
+            "description": "Hypothesis ID (ECON-N, DOS-N, or OTHER-N)"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["economic_mev", "dos_gas_grief", "reentrancy", "access_control", "arithmetic", "oracle", "token_handling", "state_machine", "other"],
+            "description": "Attack category"
+          },
+          "name": {
+            "type": "string",
+            "description": "Descriptive name for the hypothesis"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED", "LOW"],
+            "description": "Predicted severity if confirmed"
+          },
+          "preconditions": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Conditions required for attack"
+          },
+          "attack_steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Concrete attack steps"
+          },
+          "invariant_violated": {
+            "type": "string",
+            "pattern": "^(IC|IS|IA|IT|IB)-\\d+$",
+            "description": "Which invariant would be violated"
+          },
+          "why_it_breaks": {
+            "type": "string",
+            "description": "Explanation of why the invariant breaks"
+          },
+          "demonstration_test": {
+            "type": "string",
+            "description": "Test function name that would prove/disprove"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Confidence level in the hypothesis"
+          },
+          "evidence_required": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "What evidence would confirm/refute this"
+          }
+        }
+      }
+    },
+    "top_5_priority": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "pattern": "^(ECON|DOS|OTHER)-\\d+$"
+      },
+      "description": "Top 5 priority hypotheses by risk"
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Questions for dispute resolution"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  },
+  "additionalProperties": false
+}
