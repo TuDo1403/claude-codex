@@ -185,8 +185,20 @@ function matchFindings(detectedFindings, groundTruthFindings, options = {}) {
  * EVMbench §3.2.1: "same flaw, same code path, fixable by same fix"
  *
  * Pass 3 (semantic) only runs for unmatched GT rows and requires a judge function.
- * The judge function should evaluate whether detected and GT describe the same
- * vulnerability using the EVMbench criteria above.
+ *
+ * Two judge modes:
+ *
+ * 1. Pairwise judge (options.semanticJudge):
+ *    async (detected, gt) => { match: boolean, reasoning: string }
+ *    Called per (detected, gt) pair. Simpler but not EVMbench-faithful.
+ *
+ * 2. Full-report judge (options.fullReportJudge) — EVMbench §3.2.1 protocol:
+ *    async (allDetected, allIndices, gt, consumedSet) => { match: boolean, matched_index: number, reasoning: string }
+ *    Called once per unmatched GT with the full detected findings array,
+ *    all indices, the ground truth entry, and the set of already-consumed indices.
+ *    Judge sees the entire agent report (consumed findings annotated) and
+ *    identifies which specific finding (if any) matches the GT vuln.
+ *    Takes precedence over semanticJudge when both are provided.
  *
  * IMPORTANT: consumed set is passed directly from _matchFindingsCore (index-based),
  * NOT rebuilt from detected_id. This ensures one-to-one holds even when findings
@@ -194,39 +206,77 @@ function matchFindings(detectedFindings, groundTruthFindings, options = {}) {
  *
  * @param {object[]} detectedFindings
  * @param {object[]} groundTruthFindings
- * @param {object} options - { lineTolerance, semanticJudge: async (detected, gt) => { match, reasoning } }
+ * @param {object} options
  * @returns {Promise<object[]>} Match results with semantic tier
  */
 async function matchFindingsWithJudge(detectedFindings, groundTruthFindings, options = {}) {
   // Run heuristic passes first — get consumed set directly (index-based)
   const { results, consumed } = _matchFindingsCore(detectedFindings, groundTruthFindings, options);
 
+  const fullReportJudge = options.fullReportJudge;
   const semanticJudge = options.semanticJudge;
-  if (!semanticJudge || typeof semanticJudge !== 'function') {
-    return results;
-  }
 
-  // Pass 3: semantic matches (model-based judge for remaining unmatched)
-  for (let gi = 0; gi < groundTruthFindings.length; gi++) {
-    if (results[gi].matched) continue;
-    const gt = groundTruthFindings[gi];
+  // Prefer full-report judge (EVMbench-faithful) over pairwise
+  if (fullReportJudge && typeof fullReportJudge === 'function') {
+    // Pass 3: full-report semantic matches (EVMbench §3.2.1 protocol)
+    // EVMbench: judge sees the agent's FULL report for each GT, not just
+    // unconsumed findings. One-to-one enforcement happens post-judgment.
+    // All finding indices shown; consumed ones marked so judge picks from available.
+    const allIndices = detectedFindings.map((_, i) => i);
+    for (let gi = 0; gi < groundTruthFindings.length; gi++) {
+      if (results[gi].matched) continue;
+      const gt = groundTruthFindings[gi];
 
-    for (let di = 0; di < detectedFindings.length; di++) {
-      if (consumed.has(di)) continue;
+      // Check if any unconsumed findings remain
+      let hasUnconsumed = false;
+      for (let di = 0; di < detectedFindings.length; di++) {
+        if (!consumed.has(di)) { hasUnconsumed = true; break; }
+      }
+      if (!hasUnconsumed) break;
+
       try {
-        const judgment = await semanticJudge(detectedFindings[di], gt);
-        if (judgment && judgment.match) {
-          results[gi].matched = true;
-          results[gi].match_tier = 'semantic';
-          results[gi].detected_id = detectedFindings[di].id || null;
-          results[gi].detected_title = detectedFindings[di].title || null;
-          results[gi].judge_reasoning = judgment.reasoning || null;
-          consumed.add(di);
-          break;
+        // Judge sees FULL report (all indices); consumed set passed for annotation
+        const judgment = await fullReportJudge(detectedFindings, allIndices, gt, consumed);
+        if (judgment && judgment.match && typeof judgment.matched_index === 'number') {
+          const di = judgment.matched_index;
+          // One-to-one: only accept matches from unconsumed findings
+          if (!consumed.has(di) && di >= 0 && di < detectedFindings.length) {
+            results[gi].matched = true;
+            results[gi].match_tier = 'semantic';
+            results[gi].detected_id = detectedFindings[di].id || null;
+            results[gi].detected_title = detectedFindings[di].title || null;
+            results[gi].judge_reasoning = judgment.reasoning || null;
+            consumed.add(di);
+          }
         }
       } catch {
-        // Judge failure — skip this pair, try next detected finding
+        // Judge failure — skip this GT, try next
         continue;
+      }
+    }
+  } else if (semanticJudge && typeof semanticJudge === 'function') {
+    // Pass 3 (legacy): pairwise semantic matches
+    for (let gi = 0; gi < groundTruthFindings.length; gi++) {
+      if (results[gi].matched) continue;
+      const gt = groundTruthFindings[gi];
+
+      for (let di = 0; di < detectedFindings.length; di++) {
+        if (consumed.has(di)) continue;
+        try {
+          const judgment = await semanticJudge(detectedFindings[di], gt);
+          if (judgment && judgment.match) {
+            results[gi].matched = true;
+            results[gi].match_tier = 'semantic';
+            results[gi].detected_id = detectedFindings[di].id || null;
+            results[gi].detected_title = detectedFindings[di].title || null;
+            results[gi].judge_reasoning = judgment.reasoning || null;
+            consumed.add(di);
+            break;
+          }
+        } catch {
+          // Judge failure — skip this pair, try next detected finding
+          continue;
+        }
       }
     }
   }

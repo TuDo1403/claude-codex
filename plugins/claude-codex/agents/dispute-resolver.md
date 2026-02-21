@@ -355,6 +355,9 @@ Also write to `.task/dispute-resolution.json`:
     {
       "id": "D-1",
       "title": "Flash loan price manipulation",
+      "mechanism": "flash-loan",
+      "file": "src/Vault.sol",
+      "line": 142,
       "opus_source": "ECON-1",
       "codex_source": "FP-2",
       "opus_severity": "HIGH",
@@ -362,11 +365,15 @@ Also write to `.task/dispute-resolution.json`:
       "verdict": "CONFIRMED",
       "justification": "TWAP window insufficient for large positions",
       "red_team_issue": "RT-001",
-      "reproduction_test": "test/disputes/D1_flashLoanManipulation.t.sol"
+      "reproduction_artifact": {
+        "type": "foundry_test",
+        "test_file": "test/disputes/D1_flashLoanManipulation.t.sol",
+        "test_function": "test_D1_flashLoanManipulation"
+      }
     }
   ],
   "red_team_issues_created": [
-    { "id": "RT-001", "dispute": "D-1", "severity": "HIGH" }
+    { "id": "RT-001", "dispute": "D-1", "severity": "HIGH", "title": "Flash loan price manipulation", "mechanism": "flash-loan", "file": "src/Vault.sol", "line": 142 }
   ],
   "unclear_tasks_created": [
     { "task": "T-D3-test", "dispute": "D-3", "test_required": "test/disputes/D3_stateCorruption.t.sol" }

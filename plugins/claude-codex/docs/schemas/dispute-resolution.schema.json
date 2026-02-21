@@ -157,8 +157,8 @@
           },
           "red_team_issue": {
             "type": ["string", "null"],
-            "pattern": "^RT-\\d{3}$",
-            "description": "Red-team issue ID if CONFIRMED"
+            "pattern": "^RT-\\d{3,}$",
+            "description": "Red-team issue ID if CONFIRMED (RT-001, RT-010, etc.)"
           },
           "add_test_task": {
             "type": ["string", "null"],
@@ -179,8 +179,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^RT-\\d{3}$",
-            "description": "Red-team issue ID"
+            "pattern": "^RT-\\d{3,}$",
+            "description": "Red-team issue ID (RT-001, RT-010, etc.)"
           },
           "dispute": {
             "type": "string",

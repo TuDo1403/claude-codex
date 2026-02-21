@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "consolidated-findings.schema.json",
+  "title": "Consolidated Findings",
+  "description": "Schema for Stage 4.5 unified findings from all detection stages (exploit-hunt, attack-plan, deep-exploit, dispute)",
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "stage",
+    "summary",
+    "findings",
+    "generated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^consolidated-findings-\\d+$",
+      "description": "Unique consolidation ID"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Pipeline run ID"
+    },
+    "stage": {
+      "type": "string",
+      "const": "4.5",
+      "description": "Pipeline stage"
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "high", "med", "multi_source"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total unique findings after dedup"
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "HIGH severity count"
+        },
+        "med": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "MED severity count"
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "LOW severity count"
+        },
+        "multi_source": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Findings confirmed by 2+ sources"
+        },
+        "by_source": {
+          "type": "object",
+          "properties": {
+            "exploit_hunt": { "type": "integer", "minimum": 0 },
+            "attack_plan": { "type": "integer", "minimum": 0 },
+            "deep_exploit": { "type": "integer", "minimum": 0 },
+            "dispute": { "type": "integer", "minimum": 0 }
+          },
+          "description": "Finding counts by detection stage source"
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "original_id", "source", "severity", "title"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^RT-\\d{3,}$",
+            "description": "Unified red-team issue ID (RT-001, RT-002, ...)"
+          },
+          "original_id": {
+            "type": "string",
+            "pattern": "^(EH|ECON|DOS|OTHER|CEH|D)-\\d+$",
+            "description": "Primary original ID from source stage"
+          },
+          "original_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "All original IDs that mapped to this finding (for dedup tracking)"
+          },
+          "source": {
+            "type": "string",
+            "description": "Primary source or joined sources (e.g., 'exploit-hunt' or 'exploit-hunt+attack-plan')"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["exploit-hunt", "attack-plan", "deep-exploit", "dispute"]
+            },
+            "description": "All detection stages that independently found this"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED", "LOW"],
+            "description": "Highest severity across sources"
+          },
+          "title": {
+            "type": "string",
+            "description": "Finding title"
+          },
+          "file": {
+            "type": "string",
+            "description": "Affected file path"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Affected line number"
+          },
+          "mechanism": {
+            "type": "string",
+            "description": "Exploit mechanism classification"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description"
+          },
+          "regression_test_required": {
+            "type": "string",
+            "description": "Path to required regression test"
+          },
+          "multi_source": {
+            "type": "boolean",
+            "description": "True if found by 2+ independent sources (high confidence)"
+          }
+        }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  }
+}

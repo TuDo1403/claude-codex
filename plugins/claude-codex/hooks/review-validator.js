@@ -22,7 +22,7 @@
  * and happens AFTER the review, not during SubagentStop.
  */
 
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { readAndNormalizeJson, validatePerVulnFormat } from './normalize.js';
 
@@ -281,7 +281,7 @@ export function validateCodeReview(review, userStory) {
  */
 function validateCalibrationArtifacts() {
   const now = Date.now();
-  const RECENT_MS = 60000; // Written in the last 60 seconds
+  const RECENT_MS = 120000; // Written in the last 120 seconds
 
   // Check each calibration artifact — only validate if recently modified
   const artifacts = [
@@ -291,32 +291,52 @@ function validateCalibrationArtifacts() {
     { file: 'discovery-scoreboard.json', validator: 'discovery-scoreboard' }
   ];
 
-  for (const { file, validator } of artifacts) {
-    const filePath = join(TASK_DIR, file);
-    if (!existsSync(filePath)) continue;
-
+  // Collect candidate paths: global .task/{file} + run-scoped .task/{runId}/{file}
+  function getCandidatePaths(file) {
+    const paths = [join(TASK_DIR, file)];
     try {
-      const stat = statSync(filePath);
-      if (now - stat.mtimeMs > RECENT_MS) continue; // Not recently written
-
-      const data = readAndNormalizeJson(filePath);
-      let error = null;
-
-      if (validator === 'detect-coverage') {
-        error = validateDetectCoverage(data);
-      } else if (validator === 'patch-closure') {
-        const detectData = readAndNormalizeJson(join(TASK_DIR, 'detect-coverage.json'));
-        error = validatePatchClosure(data, detectData);
-      } else if (validator === 'exploit-replay') {
-        const patchData = readAndNormalizeJson(join(TASK_DIR, 'patch-closure.json'));
-        error = validateExploitReplay(data, patchData);
-      } else if (validator === 'discovery-scoreboard') {
-        error = validateDiscoveryScoreboard(data);
+      const entries = existsSync(TASK_DIR) ? readdirSync(TASK_DIR, { withFileTypes: true }) : [];
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          paths.push(join(TASK_DIR, entry.name, file));
+        }
       }
+    } catch { /* ignore */ }
+    return paths;
+  }
 
-      if (error) return error;
-    } catch {
-      continue; // Skip artifacts we can't read
+  for (const { file, validator } of artifacts) {
+    const candidatePaths = getCandidatePaths(file);
+
+    for (const filePath of candidatePaths) {
+      if (!existsSync(filePath)) continue;
+
+      try {
+        const stat = statSync(filePath);
+        if (now - stat.mtimeMs > RECENT_MS) continue; // Not recently written
+
+        const data = readAndNormalizeJson(filePath);
+        let error = null;
+        const dir = join(filePath, '..');
+
+        if (validator === 'detect-coverage') {
+          error = validateDetectCoverage(data);
+        } else if (validator === 'patch-closure') {
+          const detectData = readAndNormalizeJson(join(dir, 'detect-coverage.json'))
+            || readAndNormalizeJson(join(TASK_DIR, 'detect-coverage.json'));
+          error = validatePatchClosure(data, detectData);
+        } else if (validator === 'exploit-replay') {
+          const patchData = readAndNormalizeJson(join(dir, 'patch-closure.json'))
+            || readAndNormalizeJson(join(TASK_DIR, 'patch-closure.json'));
+          error = validateExploitReplay(data, patchData);
+        } else if (validator === 'discovery-scoreboard') {
+          error = validateDiscoveryScoreboard(data);
+        }
+
+        if (error) return error;
+      } catch {
+        continue; // Skip artifacts we can't read
+      }
     }
   }
 
@@ -353,7 +373,9 @@ async function main() {
     'claude-codex:redteam-verifier',
     'claude-codex:sc-code-reviewer',
     'claude-codex:security-auditor',
-    'claude-codex:opus-attack-planner'
+    'claude-codex:opus-attack-planner',
+    'claude-codex:codex-deep-exploit-hunter',
+    'claude-codex:dispute-resolver'
   ];
   const isCalibrationAgent = CALIBRATION_AGENTS.includes(agentType);
 

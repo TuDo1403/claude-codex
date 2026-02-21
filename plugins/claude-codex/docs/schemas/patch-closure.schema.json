@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "patch-closure.schema.json",
+  "title": "Patch Closure",
+  "description": "Schema for patch closure sprint calibration artifact. Tracks patch status for validated HIGH/MED findings.",
+  "type": "object",
+  "required": [
+    "patches"
+  ],
+  "properties": {
+    "patches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_id"],
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "description": "Finding ID being patched (from detect-coverage.json)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Alternative to finding_id for backward compatibility"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["patched", "partial", "wontfix", "pending", "insufficient"],
+            "description": "Patch status"
+          },
+          "fix_description": {
+            "type": "string",
+            "description": "Description of the fix applied"
+          },
+          "test": {
+            "type": ["string", "null"],
+            "description": "Path to regression test"
+          },
+          "unseen_override": {
+            "type": "boolean",
+            "description": "True if unseen exploit gate failure overrode this finding's status to insufficient"
+          }
+        }
+      },
+      "description": "Patch entries for each validated finding"
+    },
+    "unseen_exploit_test": {
+      "type": "object",
+      "properties": {
+        "exploits_blocked": {
+          "type": "boolean",
+          "description": "True if all exploit tests are now blocked by patches"
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of exploit tests that passed (= exploit blocked)"
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of exploit tests that failed (= exploit succeeded)"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if test harness failed"
+        }
+      },
+      "description": "EVMbench §3.2.2 unseen exploit test results. Gate blocks unless exploits_blocked=true."
+    },
+    "forge_test": {
+      "type": "object",
+      "description": "Forge test verification results for patches",
+      "properties": {
+        "passed": { "type": "boolean" },
+        "output": { "type": "string" }
+      }
+    },
+    "overall_verdict": {
+      "type": "string",
+      "description": "Overall patch closure verdict (e.g. ALL_PATCHED, SOME_INSUFFICIENT)"
+    },
+    "unseen_override": {
+      "type": "boolean",
+      "description": "True if unseen exploit gate failure caused fail-closed override of all patch statuses"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  }
+}

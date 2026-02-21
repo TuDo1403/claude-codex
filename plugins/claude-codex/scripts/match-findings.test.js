@@ -489,3 +489,163 @@ describe('matchFindingsWithJudge', () => {
     expect(results[0].matched).toBe(false);
   });
 });
+
+// ================== matchFindingsWithJudge — fullReportJudge ==================
+
+describe('matchFindingsWithJudge fullReportJudge', () => {
+  it('matches using fullReportJudge with matched_index', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/Oracle.sol', line: 100, mechanism: 'oracle-manipulation', title: 'Oracle issue', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Other.sol', line: 10, title: 'Unrelated' },
+      { id: 'D-2', file: 'src/PriceFeed.sol', line: 55, title: 'Price manipulation via TWAP' }
+    ];
+    // Judge identifies D-2 (index 1) as the match
+    const judge = async (allDetected, allIndices, groundTruth, consumedSet) => {
+      if (groundTruth.id === 'GT-1') {
+        return { match: true, matched_index: 1, reasoning: 'Same oracle flaw' };
+      }
+      return { match: false, matched_index: -1, reasoning: 'No match' };
+    };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    expect(results[0].matched).toBe(true);
+    expect(results[0].match_tier).toBe('semantic');
+    expect(results[0].detected_id).toBe('D-2');
+    expect(results[0].judge_reasoning).toBe('Same oracle flaw');
+  });
+
+  it('respects one-to-one consumption across fullReportJudge tier', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/A.sol', line: 10, mechanism: 'other', title: 'Bug A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/B.sol', line: 20, mechanism: 'other', title: 'Bug B', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/C.sol', line: 30, title: 'Generic issue' }
+    ];
+    // Judge always says D-1 (index 0) matches — sees full report with consumed annotation
+    const judge = async (allDetected, allIndices, gt, consumedSet) => {
+      if (!consumedSet || !consumedSet.has(0)) {
+        return { match: true, matched_index: 0, reasoning: 'Matches' };
+      }
+      return { match: false, matched_index: -1, reasoning: 'Already consumed' };
+    };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    const matched = results.filter(r => r.matched);
+    // D-1 consumed by GT-1; GT-2 should not match (one-to-one)
+    expect(matched.length).toBe(1);
+    expect(matched[0].ground_truth_id).toBe('GT-1');
+  });
+
+  it('fullReportJudge takes precedence over semanticJudge', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/X.sol', line: 10, mechanism: 'other', title: 'Bug', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Y.sol', line: 20, title: 'Issue' }
+    ];
+    const fullJudge = async (allDetected, allIndices, groundTruth, consumedSet) => {
+      return { match: true, matched_index: 0, reasoning: 'Full report match' };
+    };
+    const pairJudge = async () => {
+      throw new Error('Should not be called');
+    };
+    const results = await matchFindingsWithJudge(det, gt, {
+      fullReportJudge: fullJudge,
+      semanticJudge: pairJudge
+    });
+    expect(results[0].matched).toBe(true);
+    expect(results[0].judge_reasoning).toBe('Full report match');
+  });
+
+  it('rejects matched_index that is already consumed by heuristic pass', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 42, mechanism: 'reentrancy', title: 'Reentrancy A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/X.sol', line: 10, mechanism: 'other', title: 'Other bug', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' }
+    ];
+    // D-1 (index 0) will be consumed by exact match for GT-1.
+    // Judge tries to re-use index 0 for GT-2 — should be rejected.
+    const judge = async (allDetected, allIndices, groundTruth, consumedSet) => {
+      return { match: true, matched_index: 0, reasoning: 'Trying consumed index' };
+    };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    expect(results[0].matched).toBe(true);
+    expect(results[0].match_tier).toBe('exact');
+    // GT-2 should NOT match — index 0 was consumed
+    expect(results[1].matched).toBe(false);
+  });
+
+  it('rejects out-of-bounds matched_index', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/X.sol', line: 10, mechanism: 'other', title: 'Bug', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Y.sol', line: 20, title: 'Issue' }
+    ];
+    const judge = async () => ({ match: true, matched_index: 99, reasoning: 'Bad index' });
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    expect(results[0].matched).toBe(false);
+  });
+
+  it('handles fullReportJudge errors gracefully', async () => {
+    const gt = [{ id: 'GT-1', file: 'src/A.sol', line: 10, mechanism: 'other', title: 'Bug', severity: 'HIGH' }];
+    const det = [{ id: 'D-1', file: 'src/B.sol', line: 20, title: 'Thing' }];
+    const errorJudge = async () => { throw new Error('API down'); };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: errorJudge });
+    expect(results[0].matched).toBe(false);
+  });
+
+  it('receives full report with consumed set excluding heuristic-consumed', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 42, mechanism: 'reentrancy', title: 'Reentrancy', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/X.sol', line: 10, mechanism: 'other', title: 'Other', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' },
+      { id: 'D-2', file: 'src/Z.sol', line: 99, title: 'Something else' }
+    ];
+    // D-1 (index 0) consumed by exact match for GT-1.
+    // Judge should receive ALL indices (full report) with consumed set indicating index 0.
+    let receivedIndices;
+    let receivedConsumed;
+    const judge = async (allDetected, allIndices, groundTruth, consumedSet) => {
+      receivedIndices = [...allIndices];
+      receivedConsumed = new Set(consumedSet);
+      return { match: true, matched_index: 1, reasoning: 'Matched D-2' };
+    };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    // Judge sees ALL indices (full report per EVMbench)
+    expect(receivedIndices).toEqual([0, 1]);
+    // But consumed set indicates index 0 is taken
+    expect(receivedConsumed.has(0)).toBe(true);
+    expect(receivedConsumed.has(1)).toBe(false);
+    expect(results[1].matched).toBe(true);
+    expect(results[1].detected_id).toBe('D-2');
+  });
+
+  it('skips remaining GT when all findings consumed', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/X.sol', line: 10, mechanism: 'other', title: 'Bug A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/Y.sol', line: 20, mechanism: 'other', title: 'Bug B', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Z.sol', line: 30, title: 'Issue' }
+    ];
+    let callCount = 0;
+    const judge = async (allDetected, allIndices, groundTruth, consumedSet) => {
+      callCount++;
+      if (!consumedSet || !consumedSet.has(0)) {
+        return { match: true, matched_index: 0, reasoning: 'Match' };
+      }
+      return { match: false, matched_index: -1, reasoning: 'None left' };
+    };
+    const results = await matchFindingsWithJudge(det, gt, { fullReportJudge: judge });
+    // After GT-1 consumes D-1, GT-2 should not invoke judge (all consumed)
+    expect(callCount).toBe(1);
+    expect(results[0].matched).toBe(true);
+    expect(results[1].matched).toBe(false);
+  });
+});

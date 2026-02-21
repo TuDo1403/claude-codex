@@ -247,6 +247,8 @@ Also write to `.task/opus-attack-plan.json`:
       "category": "economic_mev",
       "name": "Flash loan price manipulation",
       "severity": "HIGH",
+      "file": "src/Oracle.sol",
+      "line": 67,
       "preconditions": ["Liquidity pool exists", "No TWAP oracle"],
       "attack_steps": ["1. Flash borrow", "2. Manipulate price", "3. Profit"],
       "invariant_violated": "IC-1",
@@ -264,6 +266,26 @@ Also write to `.task/opus-attack-plan.json`:
   "generated_at": "ISO8601"
 }
 ```
+
+---
+
+## Discovery Scoreboard (REQUIRED)
+
+You MUST also write `.task/discovery-scoreboard.json`:
+
+```json
+{
+  "entrypoints_total": <number of public/external functions in scope>,
+  "entrypoints_reviewed": <number you analyzed>,
+  "high_med_candidates": <number of attack hypotheses at HIGH/MED>,
+  "validated_high_med": <number with demonstration tests>,
+  "hint_level": "none"
+}
+```
+
+Valid `hint_level` values: `"none"`, `"low"`, `"medium"`, `"high"`
+
+Hook enforcement: `review-validator.js` blocks if this file is missing or malformed.
 
 ---
 

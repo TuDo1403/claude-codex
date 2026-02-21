@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "discovery-scoreboard.schema.json",
+  "title": "Discovery Scoreboard",
+  "description": "Schema for Stage 4 discovery scoreboard calibration artifact. Required by exploit-hunter and opus-attack-planner agents.",
+  "type": "object",
+  "required": [
+    "entrypoints_total",
+    "entrypoints_reviewed",
+    "high_med_candidates",
+    "validated_high_med",
+    "hint_level"
+  ],
+  "properties": {
+    "entrypoints_total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of public/external functions in scope"
+    },
+    "entrypoints_reviewed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of entrypoints actually analyzed"
+    },
+    "high_med_candidates": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of HIGH/MED candidate findings"
+    },
+    "validated_high_med": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of HIGH/MED findings with evidence"
+    },
+    "hint_level": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high"],
+      "description": "Hint level used for this pass. 'none' on first pass."
+    }
+  }
+}

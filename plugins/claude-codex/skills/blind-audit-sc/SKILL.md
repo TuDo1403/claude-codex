@@ -131,7 +131,7 @@ T1: codex_spec_write           (blockedBy: [T0])
 T2: spec_gate_validate         (blockedBy: [T1])
 T3: claude_implement           (blockedBy: [T2])
 T4: run_tests_collect_reports  (blockedBy: [T3])
-T5: bundle_generate_stage3     (blockedBy: [T2])
+T5: bundle_generate_stage3     (blockedBy: [T4])
 T6: bundle_generate_stage4     (blockedBy: [T4])
 T7: spec_compliance_review     (blockedBy: [T4, T5])
     -> Loop if NEEDS_CHANGES: codex_spec_fix -> re-validate -> re-review
@@ -157,7 +157,14 @@ T8f: dispute_resolution         (blockedBy: [T8e])
 
 === END ADVERSARIAL MODE ===
 
-T9: bundle_generate_final      (blockedBy: [T8, T8f])
+T8g: consolidate_findings       (blockedBy: [T8, T8f] if adversarial; [T8] otherwise)
+T8h: coverage_tracking          (blockedBy: [T8g])
+T8i: stage_5_redteam_loop      (blockedBy: [T8h])
+     Agent: redteam-verifier
+     -> Loop: patch HIGH/MED issues, run exploit-verify + patch-verify until all CLOSED
+     -> Gate E enforced by redteam-closure-validator.js
+
+T9: bundle_generate_final      (blockedBy: [T8i])
 T10: codex_final_gate          (blockedBy: [T9])
 ```
 
@@ -321,7 +328,7 @@ The **redteam-verifier** agent (Stage 5) MUST write `.task/exploit-replay.json` 
 **Hook enforcement:** `review-validator.js` → `validateExploitReplay()` blocks if missing/malformed.
 
 **Scripts:**
-- `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id> --live-chain` — runs exploit via Anvil
+- `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id>` — runs exploit via Anvil (live-chain default per EVMbench; override with `exploit_verification.live_chain.enable: false`)
 - `bun "${CLAUDE_PLUGIN_ROOT}/scripts/replay-transactions.js"` — replays txs on fresh chain
 - `bun "${CLAUDE_PLUGIN_ROOT}/scripts/grade-exploit.js"` — grades via wallet delta
 
@@ -397,6 +404,11 @@ Read `.claude-codex.json` from project root (or use defaults):
       "require_reproduction_artifacts": true,
       "auto_create_rt_issues": true
     }
+  },
+  "exploit_verification": {
+    "live_chain": {
+      "enable": true
+    }
   }
 }
 ```
@@ -465,11 +477,27 @@ TaskCreate: "STAGE 1: Codex Spec Writing"              -> T1 (blockedBy: [T0])
 TaskCreate: "STAGE 2: Spec Gate Validation"            -> T2 (blockedBy: [T1])
 TaskCreate: "STAGE 3A: Claude Implementation (TDD)"    -> T3 (blockedBy: [T2])
 TaskCreate: "STAGE 3B: Run Tests & Collect Reports"    -> T4 (blockedBy: [T3])
-TaskCreate: "Generate Bundle Stage 3"                  -> T5 (blockedBy: [T2])
+TaskCreate: "Generate Bundle Stage 3"                  -> T5 (blockedBy: [T4])
 TaskCreate: "Generate Bundle Stage 4"                  -> T6 (blockedBy: [T4])
 TaskCreate: "STAGE 3: Spec Compliance Review"          -> T7 (blockedBy: [T4, T5])
 TaskCreate: "STAGE 4: Exploit Hunt Review"             -> T8 (blockedBy: [T6, T7])
-TaskCreate: "Generate Final Bundle"                    -> T9 (blockedBy: [T8])
+
+# === If adversarial_mode: true ===
+TaskCreate: "Generate Bundle Stage 4A"                 -> T8a (blockedBy: [T4])
+TaskCreate: "Generate Bundle Stage 4B"                 -> T8b (blockedBy: [T4])
+TaskCreate: "STAGE 4A: Opus Attack Plan"               -> T8c (blockedBy: [T8a])
+TaskCreate: "STAGE 4B: Codex Deep Exploit"             -> T8d (blockedBy: [T8b])
+TaskCreate: "Generate Bundle Stage 4C"                 -> T8e (blockedBy: [T8c, T8d])
+TaskCreate: "STAGE 4C: Dispute Resolution"             -> T8f (blockedBy: [T8e])
+TaskCreate: "STAGE 4.5: Consolidate Findings"          -> T8g (blockedBy: [T8, T8f])
+TaskCreate: "STAGE 4.5: Coverage Tracking"             -> T8h (blockedBy: [T8g])
+# === Else (adversarial_mode: false) ===
+TaskCreate: "STAGE 4.5: Consolidate Findings"          -> T8g (blockedBy: [T8])
+TaskCreate: "STAGE 4.5: Coverage Tracking"             -> T8h (blockedBy: [T8g])
+# === End conditional ===
+
+TaskCreate: "STAGE 5: Red-Team Loop"                   -> T8i (blockedBy: [T8h])
+TaskCreate: "Generate Final Bundle"                    -> T9 (blockedBy: [T8i])
 TaskCreate: "STAGE 6: Codex Final Gate"                -> T10 (blockedBy: [T9])
 ```
 
@@ -487,6 +515,15 @@ Save to `.task/pipeline-tasks.json`:
   "bundle_stage4": "T6-id",
   "stage_3_spec_compliance": "T7-id",
   "stage_4_exploit_hunt": "T8-id",
+  "bundle_stage4a": "T8a-id",
+  "bundle_stage4b": "T8b-id",
+  "stage_4a_opus_attack": "T8c-id",
+  "stage_4b_codex_exploit": "T8d-id",
+  "bundle_stage4c": "T8e-id",
+  "stage_4c_dispute_resolution": "T8f-id",
+  "consolidate_findings": "T8g-id",
+  "coverage_tracking": "T8h-id",
+  "stage_5_redteam_loop": "T8i-id",
   "bundle_final": "T9-id",
   "stage_6_final_gate": "T10-id"
 }
@@ -522,7 +559,7 @@ Task(
 
 The agent invokes:
 ```bash
-node "{PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "{PLUGIN_ROOT}" --task "{TASK}"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "${CLAUDE_PLUGIN_ROOT}" --task "${TASK}"
 ```
 
 **Block condition:** Missing user-story.json or incomplete acceptance criteria
@@ -757,7 +794,7 @@ Task(
 
 **Invocation:**
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id>
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id> --timeout 1200000
 ```
 
 ---
@@ -801,14 +838,44 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id>
 
 ---
 
+### STAGE 4.5: Findings Consolidation + Coverage Check
+
+**Purpose:** Merge all detection findings into unified set and check coverage.
+
+**Step 1: Consolidate Findings**
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/consolidate-findings.js" --run-id <run_id>
+```
+
+Collects HIGH/MED from: exploit-hunt (Stage 4), attack-plan (Stage 4A), deep-exploit (Stage 4B), confirmed disputes (Stage 4C). Deduplicates and writes `consolidated-findings.json` + initial `red-team-issue-log.md`.
+
+**Step 2: Coverage Tracking**
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-tracker.js" --run-id <run_id> --threshold 90
+```
+
+If coverage < threshold, generates `coverage-hints.json`. Orchestrator may create a hinted re-detection task:
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source merged --target codex --level medium
+```
+
+**Output:**
+- `.task/<run_id>/consolidated-findings.json`
+- `.task/<run_id>/coverage-report.json`
+- `.task/<run_id>/coverage-hints.json` (if below threshold)
+- `docs/reviews/red-team-issue-log.md`
+
+---
+
 ### STAGE 5: Red-Team Loop
 
-**Purpose:** Iterate until ALL HIGH/MED issues from exploit hunt are CLOSED.
+**Purpose:** Iterate until ALL HIGH/MED issues from detection stages are CLOSED.
 
 **Agent:** `redteam-verifier` (sonnet)
 
 **Process:**
-1. Parse exploit-hunt-review.md for HIGH/MED issues
+1. Parse `.task/<run_id>/consolidated-findings.json` for all HIGH/MED issues from detection stages.
+   Fallback: parse `docs/reviews/exploit-hunt-review.md` if consolidation not available.
 2. For each issue:
    a. Create fix task
    b. Implementer patches
@@ -878,6 +945,19 @@ Decision: APPROVED|NEEDS_CHANGES|NEEDS_CLARIFICATION
 
 ---
 
+### POST-PIPELINE: Benchmark Scoring (Optional)
+
+If ground truth is available (e.g., from `benchmarks/`), score detection quality:
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/match-findings.js" \
+  --detected .task/<run_id>/consolidated-findings.json \
+  --ground-truth benchmarks/contracts/<bench-id>/ground-truth.json
+```
+
+Reports precision, recall, F1 with three-tier matching (exact + broad + semantic judge).
+
+---
+
 ## Main Loop
 
 ```
@@ -886,7 +966,9 @@ while pipeline not complete:
     2. TaskUpdate(task_id, status: "in_progress")
     3. If bundle generation task:
        - Run appropriate generate-bundle script
-       - Validate bundle with bundle-validator
+       - Validate bundle with bundle-validator (verify blindness constraints)
+       - For stage4a: verify NO Codex output in bundle
+       - For stage4b: verify NO Opus output in bundle
     4. If review task:
        - Spawn reviewer agent with appropriate bundle
        - Validate output schema
@@ -896,7 +978,19 @@ while pipeline not complete:
        - Update next task's blockedBy
     6. If gate passes AND review APPROVED:
        - TaskUpdate(task_id, status: "completed")
-    7. Continue to next task
+    7. If adversarial_mode AND T8 just completed:
+       - Create T8a-T8f tasks (if not already created in Step 4)
+       - T8a, T8b run in PARALLEL (both blockedBy: [T4])
+       - T8c (opus-attack-planner) sees bundle-stage4a only
+       - T8d (codex-deep-exploit-hunter) sees bundle-stage4b only
+       - T8e (bundle-stage4c) blocked until BOTH T8c AND T8d complete
+       - T8f (dispute-resolver) sees bundle-stage4c (both reviews)
+       - Update T8g blockedBy to include T8f
+    8. If T8f (dispute) returns UNCLEAR disputes:
+       - Create add-test tasks for each UNCLEAR dispute
+       - Create rerun tasks: T-D{N}-4a, T-D{N}-4b, T-D{N}-4c
+       - Max dispute_max_rounds (default: 3) reruns
+    9. Continue to next task
 ```
 
 ---
@@ -907,12 +1001,14 @@ while pipeline not complete:
 |-------|------|-------|-------|--------|
 | 0 | Requirements | requirements-gatherer-codex | external | user-story.json |
 | 1 | Spec Writing | strategist-codex | external | threat-model, design, test-plan |
+| 2 | Spec Gate Validation | blind-audit-gate-validator.js | script | gate-validation result |
 | 3A | Implementation | sc-implementer | sonnet | impl-result.json |
 | 3 | Spec Compliance | spec-compliance-reviewer | opus | spec-compliance-review.md |
 | 4 | Exploit Hunt | exploit-hunter | opus | exploit-hunt-review.md, **discovery-scoreboard.json** |
 | **4A** | **Opus Attack Plan** | **opus-attack-planner** | **opus** | **opus-attack-plan.md**, **discovery-scoreboard.json** |
-| **4B** | **Codex Deep Exploit** | **codex-deep-exploit-hunter** | **external** | **codex-deep-exploit-review.md** |
+| **4B** | **Codex Deep Exploit** | **codex-deep-exploit-hunter** | **external** | **codex-deep-exploit-review.md**, **discovery-scoreboard.json** |
 | **4C** | **Dispute Resolution** | **dispute-resolver** | **opus** | **dispute-resolution.md** |
+| **4.5** | **Consolidate + Coverage** | **consolidate-findings.js + coverage-tracker.js** | **script** | **consolidated-findings.json, coverage-report.json** |
 | 5 | Fix Verification | redteam-verifier | sonnet | red-team-issue-log.md, **exploit-replay.json** |
 | 6 | Final Gate | final-gate-codex | external | final-codex-gate.md |
 
@@ -966,6 +1062,16 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4b.js" --run-id <run_id>
 ### Generate Stage 4C Bundle (NO SPEC PROSE, BOTH REVIEWS)
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-stage4c.js" --run-id <run_id>
+```
+
+### Consolidate All Detection Findings
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/consolidate-findings.js" --run-id <run_id>
+```
+
+### Run Coverage Check
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-tracker.js" --run-id <run_id> --threshold 90
 ```
 
 ### Invoke Codex Deep Exploit Hunt

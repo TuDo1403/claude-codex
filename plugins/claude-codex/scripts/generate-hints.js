@@ -286,7 +286,13 @@ function findSourceFindings(runId, source) {
 
 function main() {
   const args = parseArguments();
-  const runId = args['run-id'] || `hints-${Date.now()}`;
+
+  if (!args['run-id']) {
+    console.error('ERROR: --run-id is required');
+    process.exit(1);
+  }
+
+  const runId = args['run-id'];
   const source = args.source || 'opus';
   const target = args.target || 'codex';
   const level = args.level || 'medium';

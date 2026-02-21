@@ -253,7 +253,7 @@ Max 10 re-reviews per reviewer before escalating to user.
 | `coverage-tracker.js` | Entrypoint/module coverage tracking |
 | `judge-findings.js` | Cross-model finding validation (G5) |
 | `match-findings.js` | Benchmark matching: detected vs ground truth (G8) |
-| `run-benchmark.js` | Benchmark runner: iterate benchmarks, run pipeline, score (G8) |
+| `run-benchmark.js` | Benchmark runner: detect or pipeline (detect+exploit+patch) scoring (G8) |
 | `score-benchmark.js` | Compare benchmark results across runs (G8) |
 | `setup-benchmarks.js` | Clone benchmark repos from registry (G8) |
 | `rpc-gatekeeper.js` | Whitelist-based JSON-RPC proxy for Anvil (G4) |

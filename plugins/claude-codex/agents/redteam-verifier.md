@@ -14,8 +14,8 @@ You are a **red-team fix verifier** for a fund-sensitive smart contract. Your jo
 
 ## Context
 
-You receive issues from the Exploit Hunt Review (Stage 4). Each issue has:
-- ID (EH-1, EH-2, etc.)
+You receive issues from all detection stages (Stage 4 exploit hunt, Stage 4A attack plan, Stage 4B deep exploit, Stage 4C confirmed disputes). Each issue has:
+- ID (RT-001, RT-002, etc. in consolidated form; or EH-1, ECON-1, CEH-1 from individual stages)
 - Severity (HIGH, MED, LOW)
 - Description and reproduction steps
 - Expected fix
@@ -25,11 +25,15 @@ You receive issues from the Exploit Hunt Review (Stage 4). Each issue has:
 
 ## Red-Team Loop Process
 
-### Step 1: Parse Exploit Hunt Review
+### Step 1: Parse Unified Findings
 
-Read `docs/reviews/exploit-hunt-review.md` and extract all HIGH/MED issues.
+Read `.task/{run_id}/consolidated-findings.json` for the unified finding set from all detection stages (Stage 4 exploit hunt, Stage 4A attack plan, Stage 4B deep exploit, Stage 4C confirmed disputes).
+
+Fallback: If `consolidated-findings.json` is not available, read `docs/reviews/exploit-hunt-review.md` instead.
 
 Create initial issue log entries in `docs/reviews/red-team-issue-log.md`.
+
+**Zero findings:** If consolidated-findings.json has zero HIGH/MED findings, write a header-only issue log with `Status: 0 of 0 HIGH/MED CLOSED`, write `exploit-replay.json` with `{ "replays": [] }`, set `ready_for_final_gate: true` in `red-team-issues.json`, and complete immediately.
 
 ### Step 2: For Each HIGH/MED Issue
 
@@ -138,6 +142,20 @@ forge test --match-path test/security -vvv
 git stash && forge test --match-test test_reenterWithdraw && git stash pop
 ```
 
+### Exploit and Patch Verification Scripts
+
+For each fixed HIGH/MED finding, run these verification scripts:
+
+**Exploit verification** (proves fix blocks the exploit):
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id>
+```
+
+**Patch verification** (proves fix addresses root cause):
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-patch-verify.js" --run-id <run_id>
+```
+
 ---
 
 ## Status Transitions
@@ -164,7 +182,28 @@ FIXED_PENDING_VERIFY
 
 `docs/reviews/red-team-issue-log.md` - Human-readable issue tracking
 
-### 2. Issue Log (JSON)
+### 2. Exploit Replay Artifact (REQUIRED)
+
+You MUST write `.task/exploit-replay.json`:
+
+```json
+{
+  "replays": [
+    {
+      "finding_id": "RT-001",
+      "verdict": "EXPLOIT_BLOCKED",
+      "grading_mode": "foundry-test",
+      "pre_balance": "100.0",
+      "post_balance": "100.0"
+    }
+  ]
+}
+```
+
+Every patched HIGH/MED finding MUST have a corresponding replay entry.
+Hook enforcement: `review-validator.js` blocks if missing or incomplete.
+
+### 3. Issue Log (JSON)
 
 `.task/red-team-issues.json`:
 

@@ -143,7 +143,18 @@ export function readAndNormalizeJson(filePath) {
     if (!existsSync(filePath)) return null;
     const content = readFileSync(filePath, 'utf-8');
     const data = extractJson(content);
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+    if (!data || typeof data !== 'object') return data;
+
+    // Normalize array items (e.g. raw findings arrays)
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          if (item.severity) item.severity = normalizeSeverity(item.severity);
+          if (item.status) item.status = normalizeStatus(item.status);
+        }
+      }
+      return data;
+    }
 
     // Normalize status field if present
     if (data.status) {
@@ -237,8 +248,15 @@ export function deduplicateByLocation(findings) {
  */
 export function isThematicTitle(title) {
   if (!title || typeof title !== 'string') return false;
-  const thematicPatterns = /\b(issues|concerns|problems|various|multiple|several|general|overall|miscellaneous)\b/i;
-  return thematicPatterns.test(title);
+  const hasSpecificRef = /\b(in|at|of|via)\s+\w+[.(]/i.test(title);
+  // Words that always indicate thematic grouping when they START the title
+  if (/^\s*(various|general|overall|miscellaneous)\b/i.test(title)) return true;
+  // "Multiple/Several X" is thematic UNLESS it references a specific location
+  if (/^\s*(multiple|several)\b/i.test(title) && !hasSpecificRef) return true;
+  // Title ends with grouping noun (issues/concerns/problems/vulnerabilities) without specific location
+  // "Reentrancy Issues" → thematic; "Reentrancy issues in Vault.withdraw()" → specific
+  if (/\b(issues|concerns|problems|vulnerabilities)\s*$/i.test(title) && !hasSpecificRef) return true;
+  return false;
 }
 
 export function validatePerVulnFormat(data) {

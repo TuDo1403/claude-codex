@@ -37,7 +37,7 @@
     "max_exploit_attempts_per_finding": 3,
     "require_poc_test": true,
     "live_chain": {
-      "enable": false,
+      "enable": true,
       "anvil_port": 8545,
       "gatekeeper_port": 8546,
       "rpc_gatekeeper": true,

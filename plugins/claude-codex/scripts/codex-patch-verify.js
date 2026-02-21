@@ -86,6 +86,7 @@ function parseArguments() {
       'run-id': { type: 'string' },
       'findings-path': { type: 'string' },
       'timeout': { type: 'string' },
+      'require-unseen-tests': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' }
     },
     allowPositionals: true
@@ -98,10 +99,11 @@ Usage: codex-patch-verify.js --run-id <run_id> [options]
 Codex Patch Verification: independently verifies fixes address root cause.
 
 Options:
-  --run-id          Run ID for this pipeline execution
-  --findings-path   Path to findings JSON (default: auto-detect from .task/<run_id>)
-  --timeout         Timeout in milliseconds (default: 600000 = 10 minutes)
-  -h, --help        Show this help message
+  --run-id                Run ID for this pipeline execution
+  --findings-path         Path to findings JSON (default: auto-detect from .task/<run_id>)
+  --timeout               Timeout in milliseconds (default: 600000 = 10 minutes)
+  --require-unseen-tests  Fail-closed when no unseen test directory exists (EVMbench benchmark mode)
+  -h, --help              Show this help message
     `);
     process.exit(0);
   }
@@ -135,6 +137,7 @@ function findFindings(runId, explicitPath) {
   // ONLY check run-scoped paths — global .task/ fallbacks removed
   // to prevent cross-run contamination (stale findings from prior runs).
   const candidates = [
+    join(TASK_DIR, runId, 'consolidated-findings.json'),
     join(TASK_DIR, runId, 'redteam-issue-log.json'),
     join(TASK_DIR, runId, 'codex-detect-findings.json'),
     join(TASK_DIR, runId, 'opus-detect-findings.json'),
@@ -217,15 +220,23 @@ function resetTestFiles() {
       timeout: 5000
     });
 
-    // Find modified test files (test/**/*.sol, test/**/*.t.sol)
-    const modified = execSync('git diff --name-only HEAD -- "test/" 2>/dev/null || true', {
+    // Find ALL modified files that could be test harnesses (EVMbench §3.2.2 line 484).
+    // Scope: any directory (test/, tests/, spec/, root), any test-related extension.
+    // Repos may place tests outside test/ or use non-.sol harness files (.js/.ts helpers).
+    const modified = execSync('git diff --name-only HEAD 2>/dev/null || true', {
       cwd: PROJECT_DIR,
       encoding: 'utf-8',
       timeout: 10000
     }).trim();
 
     if (modified) {
-      const testFiles = modified.split('\n').filter(f => f.endsWith('.sol'));
+      const testPatterns = [
+        /^test\//i, /^tests\//i, /^spec\//i, /^t\//i,       // common test directories
+        /\.t\.sol$/i, /\.test\.[jt]s$/i, /\.spec\.[jt]s$/i,  // test file extensions anywhere
+        /foundry\.toml$/i, /hardhat\.config\.[jt]s$/i         // build configs agent shouldn't modify
+      ];
+      const isTestFile = (f) => testPatterns.some(p => p.test(f));
+      const testFiles = modified.split('\n').filter(f => f && isTestFile(f));
       for (const file of testFiles) {
         try {
           execSync(`git checkout HEAD -- "${file}"`, {
@@ -546,11 +557,26 @@ async function main() {
     // These are benchmark-provided exploit tests that validate patches hold against known attacks.
     // Located at .task/<runId>/unseen-tests/ or benchmarks/contracts/<id>/unseen-tests/
     let unseenTestVerdict = null;
+    const requireUnseenTests = args['require-unseen-tests'] || false;
     const unseenTestDirs = [
       join(TASK_DIR, runId, 'unseen-tests'),
       join(PLUGIN_ROOT, 'benchmarks', 'contracts', runId.replace(/^bench-/, '').replace(/-\d+$/, ''), 'unseen-tests')
     ];
     const unseenTestDir = unseenTestDirs.find(d => existsSync(d));
+    if (!unseenTestDir && requireUnseenTests) {
+      // EVMbench benchmark mode: fail-closed when unseen tests are required but missing
+      console.warn('UNSEEN TESTS REQUIRED but no unseen-tests/ directory found — fail-closed');
+      unseenTestVerdict = {
+        test_count: 0,
+        passed: 0,
+        failed: 0,
+        exploits_blocked: false,
+        missing: true,
+        output_snippet: 'No unseen-tests/ directory found; --require-unseen-tests enforced fail-closed.'
+      };
+    } else if (!unseenTestDir) {
+      console.log('No unseen-tests/ directory found — skipping unseen exploit test check');
+    }
     if (unseenTestDir) {
       try {
         // Copy unseen tests to project test dir, run them, then remove
@@ -630,25 +656,44 @@ async function main() {
         // Primary field: patches_verified (as specified in INSTRUCTIONS.md schema)
         // Fallbacks: findings, patches (older schemas or LLM variation)
         const rawPatches = verifyResult.patches_verified || verifyResult.findings || verifyResult.patches || [];
-        const patches = rawPatches.map(f => ({
-          finding_id: f.finding_id || f.id || 'unknown',
-          status: f.verdict === 'PATCH_VALID' || f.verdict === 'VERIFIED' || f.patch_status === 'applied'
+        const patches = rawPatches.map(f => {
+          // Derive per-finding status from Codex output
+          let status = f.verdict === 'PATCH_VALID' || f.verdict === 'VERIFIED' || f.patch_status === 'applied'
             ? 'patched'
             : f.verdict === 'PATCH_INSUFFICIENT'
               ? 'insufficient'
-              : (f.verdict || f.patch_status || 'unknown'),
-          test: f.regression_test || f.test || null
-        }));
+              : (f.verdict || f.patch_status || 'unknown');
+          // Clamp to schema enum: patched, partial, wontfix, pending, insufficient
+          const VALID_STATUSES = ['patched', 'partial', 'wontfix', 'pending', 'insufficient'];
+          if (!VALID_STATUSES.includes(status)) {
+            status = 'pending';
+          }
+          // When unseen gate failed, override all per-finding statuses to 'insufficient'.
+          // EVMbench §3.2.2: patch grading is per-vulnerability; unseen exploit tests
+          // prove at least one patch doesn't hold, but we can't attribute to a specific
+          // finding — fail-closed marks all as insufficient.
+          if (unseenGateFailed) {
+            status = 'insufficient';
+          }
+          return {
+            finding_id: f.finding_id || f.id || 'unknown',
+            status,
+            test: f.regression_test || f.test || null,
+            ...(unseenGateFailed && { unseen_override: true })
+          };
+        });
         if (patches.length > 0) {
           const patchClosure = {
             patches,
             forge_test: forgeTestVerdict,
             unseen_exploit_test: unseenTestVerdict,
             overall_verdict: overallVerdict,
-            unseen_override: unseenGateFailed || false
+            unseen_override: unseenGateFailed || false,
+            generated_at: new Date().toISOString()
           };
-          writeFileSync(join(TASK_DIR, 'patch-closure.json'), JSON.stringify(patchClosure, null, 2));
-          console.log(`Patch closure artifact: ${join(TASK_DIR, 'patch-closure.json')}`);
+          const closurePath = join(TASK_DIR, runId, 'patch-closure.json');
+          writeFileSync(closurePath, JSON.stringify(patchClosure, null, 2));
+          console.log(`Patch closure artifact: ${closurePath}`);
         }
       } catch { /* ignore */ }
     }

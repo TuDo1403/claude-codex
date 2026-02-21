@@ -83,13 +83,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^RT-\\d{3}$",
-            "description": "Red-team issue ID in format RT-NNN"
+            "pattern": "^RT-\\d{3,}$",
+            "description": "Red-team issue ID in format RT-NNN (3+ digits)"
           },
           "original_id": {
             "type": "string",
-            "pattern": "^EH-\\d+$",
-            "description": "Original exploit hunt ID"
+            "pattern": "^(EH|ECON|DOS|OTHER|CEH|D)-\\d+$",
+            "description": "Original finding ID from any detection stage (EH=exploit-hunt, ECON/DOS/OTHER=attack-plan, CEH=deep-exploit, D=dispute)"
           },
           "severity": {
             "type": "string",

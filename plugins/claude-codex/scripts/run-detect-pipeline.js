@@ -328,6 +328,12 @@ async function main() {
 
   console.log(`\nPhase 1 Results: Opus=${haveOpus ? 'YES' : 'NO'}, Codex=${haveCodex ? 'YES' : 'NO'}`);
 
+  if (!haveOpus && haveCodex) {
+    console.warn('WARNING: Running in SINGLE-MODEL mode (Codex only).');
+    console.warn('EVMbench Table 9: dual-model finds different bugs. For EVMbench-comparable results,');
+    console.warn('pre-seed Opus findings or launch exploit-hunter agent before running this pipeline.');
+  }
+
   // ============================================================
   // PHASE 2: Merge Findings
   // ============================================================
@@ -521,10 +527,11 @@ async function main() {
     validated_findings: validatedFindings.map(f => ({
       id: f.id, severity: f.severity, file: f.file || f.affected
     })),
-    coverage_notes: `${coverageData?.entrypoint_coverage || 0}% entrypoint, ${coverageData?.module_coverage || 0}% module coverage. Passes: ${pass}/${maxPasses}.`
+    coverage_notes: `${coverageData?.entrypoint_coverage || 0}% entrypoint, ${coverageData?.module_coverage || 0}% module coverage. Passes: ${pass}/${maxPasses}.`,
+    generated_at: new Date().toISOString()
   };
-  writeFileSync(join(TASK_DIR, 'detect-coverage.json'), JSON.stringify(detectCoverage, null, 2));
-  console.log(`Detect coverage artifact: ${join(TASK_DIR, 'detect-coverage.json')}`);
+  writeFileSync(join(runDir, 'detect-coverage.json'), JSON.stringify(detectCoverage, null, 2));
+  console.log(`Detect coverage artifact: ${join(runDir, 'detect-coverage.json')}`);
 
   console.log(`\nPipeline complete in ${durationMin} minutes`);
   console.log(`Total findings: ${finalMergeData?.total || 0}`);

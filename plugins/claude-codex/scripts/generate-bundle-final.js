@@ -290,6 +290,8 @@ async function main() {
     { src: join(DOCS_DIR, 'reviews', 'opus-attack-plan.md'), dest: 'reviews/opus-attack-plan.md' },
     { src: join(DOCS_DIR, 'reviews', 'codex-deep-exploit-review.md'), dest: 'reviews/codex-deep-exploit-review.md' },
     { src: join(DOCS_DIR, 'reviews', 'dispute-resolution.md'), dest: 'reviews/dispute-resolution.md' },
+    // Stage 4.5 consolidation output
+    { src: join(TASK_DIR, runId, 'consolidated-findings.json'), dest: 'consolidated-findings.json' },
     // Calibration outputs
     { src: join(DOCS_DIR, 'reviews', 'detect-findings.md'), dest: 'reviews/detect-findings.md' },
     { src: join(DOCS_DIR, 'reviews', 'patch-validation.md'), dest: 'reviews/patch-validation.md' },

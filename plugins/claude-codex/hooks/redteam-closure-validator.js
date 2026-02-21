@@ -15,7 +15,7 @@
  * {"decision": "block", "reason": "explanation"}
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { readAndNormalizeJson } from './normalize.js';
 
@@ -106,6 +106,51 @@ function parseIssueLog(content) {
 }
 
 /**
+ * Check ALL detection sources (Stage 4 + adversarial) for HIGH/MED findings.
+ * Sources: exploit-hunt-review.md, opus-attack-plan.md, codex-deep-exploit-review.md,
+ *          dispute-resolution.md, and consolidated-findings.json.
+ */
+function checkAnySourceHasHighMed() {
+  const highMedPattern = /Severity:\s*(HIGH|MED)/i;
+  const tablePattern = /\|\s*(HIGH|MED)\s*\|/;
+
+  // Check consolidated-findings.json first (Stage 4.5 output)
+  // Must filter to HIGH/MED only — not just any findings existence
+  const consolidatedPath = join(TASK_DIR, 'consolidated-findings.json');
+  const consolidated = readAndNormalizeJson(consolidatedPath);
+  if (consolidated?.findings?.some(f => /^(HIGH|MED)$/i.test(f.severity))) {
+    return true;
+  }
+  // Also check run-scoped consolidated findings
+  try {
+    const taskFiles = existsSync(TASK_DIR) ? readdirSync(TASK_DIR, { withFileTypes: true }) : [];
+    for (const entry of taskFiles) {
+      if (!entry.isDirectory()) continue;
+      const runConsolidated = join(TASK_DIR, entry.name, 'consolidated-findings.json');
+      const data = readAndNormalizeJson(runConsolidated);
+      if (data?.findings?.some(f => /^(HIGH|MED)$/i.test(f.severity))) return true;
+    }
+  } catch { /* ignore — fail open for file system errors, markdown checks below provide backup */ }
+
+  // Check all markdown review sources
+  const reviewFiles = [
+    join(DOCS_DIR, 'reviews', 'exploit-hunt-review.md'),
+    join(DOCS_DIR, 'reviews', 'opus-attack-plan.md'),
+    join(DOCS_DIR, 'reviews', 'codex-deep-exploit-review.md'),
+    join(DOCS_DIR, 'reviews', 'dispute-resolution.md'),
+  ];
+
+  for (const filePath of reviewFiles) {
+    const content = readFile(filePath);
+    if (content && (highMedPattern.test(content) || tablePattern.test(content))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Validate Gate E: Red-Team Closure
  */
 function validateGateE() {
@@ -116,20 +161,14 @@ function validateGateE() {
   // Check issue log exists
   const issueLog = readFile(issueLogPath);
   if (!issueLog) {
-    // No issue log might mean no issues found - check exploit hunt
-    const exploitHuntPath = join(DOCS_DIR, 'reviews', 'exploit-hunt-review.md');
-    const exploitHunt = readFile(exploitHuntPath);
-
-    if (exploitHunt) {
-      // Check if exploit hunt found HIGH/MED issues
-      const hasHighMed = /Severity:\s*(HIGH|MED)/i.test(exploitHunt) ||
-                         /\|\s*(HIGH|MED)\s*\|/.test(exploitHunt);
-      if (hasHighMed) {
-        return {
-          decision: 'block',
-          reason: 'GATE E FAILED: Exploit hunt found HIGH/MED issues but no red-team-issue-log.md exists.'
-        };
-      }
+    // No issue log might mean no issues found - check ALL detection sources
+    // (exploit hunt + adversarial stages + consolidated findings)
+    const hasHighMed = checkAnySourceHasHighMed();
+    if (hasHighMed) {
+      return {
+        decision: 'block',
+        reason: 'GATE E FAILED: Detection stages found HIGH/MED issues but no red-team-issue-log.md exists.'
+      };
     }
 
     // No issues found, gate passes
@@ -183,15 +222,13 @@ function validateGateE() {
     }
   }
 
-  // Validate artifact if present
+  // Validate red-team-issues.json artifact if present (written by redteam-verifier agent)
   const artifact = readAndNormalizeJson(artifactPath);
-  if (artifact) {
-    if (!artifact.ready_for_final_gate) {
-      return {
-        decision: 'block',
-        reason: 'GATE E FAILED: red-team-issues.json shows ready_for_final_gate=false'
-      };
-    }
+  if (artifact && artifact.ready_for_final_gate === false) {
+    return {
+      decision: 'block',
+      reason: 'GATE E FAILED: red-team-issues.json shows ready_for_final_gate=false'
+    };
   }
 
   return null; // All validations passed

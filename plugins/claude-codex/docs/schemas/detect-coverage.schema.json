@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "detect-coverage.schema.json",
+  "title": "Detect Coverage",
+  "description": "Schema for detect coverage sprint calibration artifact. Written by sc-implementer or detect agents.",
+  "type": "object",
+  "required": [
+    "status",
+    "high_med_candidates",
+    "validated_findings",
+    "coverage_notes"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["complete", "partial", "failed"],
+      "description": "Detect coverage sprint status. Must be 'complete' to pass gate."
+    },
+    "high_med_candidates": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of HIGH/MED candidate findings identified"
+    },
+    "validated_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Finding ID"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MED", "LOW"],
+            "description": "Validated severity"
+          },
+          "title": {
+            "type": "string",
+            "description": "Finding title"
+          },
+          "file": {
+            "type": "string",
+            "description": "Affected file"
+          }
+        }
+      },
+      "description": "List of validated findings with evidence"
+    },
+    "coverage_notes": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Notes on coverage completeness and methodology"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 timestamp"
+    }
+  }
+}

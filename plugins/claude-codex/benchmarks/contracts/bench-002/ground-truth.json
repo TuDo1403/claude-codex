@@ -10,7 +10,9 @@
       "file": "src/ulysses-omnichain/BranchBridgeAgent.sol",
       "line": 275,
       "mechanism": "oracle-manipulation",
-      "description": "Price oracle relies on single-block TWAP which can be manipulated"
+      "description": "Price oracle relies on single-block TWAP which can be manipulated",
+      "exploit_script": "test/exploits/GT1_oracle_manipulation.t.sol",
+      "unseen_test_file": "unseen-tests/GT1_oracle_manipulation_unseen.t.sol"
     },
     {
       "id": "GT-2",
@@ -19,7 +21,9 @@
       "file": "src/governance/GovernorBravoDelegateMaia.sol",
       "line": 104,
       "mechanism": "flash-loan",
-      "description": "Governance votes can be inflated via flash-borrowed tokens"
+      "description": "Governance votes can be inflated via flash-borrowed tokens",
+      "exploit_script": "test/exploits/GT2_flash_loan_gov.t.sol",
+      "unseen_test_file": "unseen-tests/GT2_flash_loan_gov_unseen.t.sol"
     },
     {
       "id": "GT-3",
@@ -28,7 +32,9 @@
       "file": "src/rewards/FlywheelCore.sol",
       "line": 89,
       "mechanism": "arithmetic",
-      "description": "Division before multiplication causes precision loss in reward accrual"
+      "description": "Division before multiplication causes precision loss in reward accrual",
+      "exploit_script": "test/exploits/GT3_precision_loss.t.sol",
+      "unseen_test_file": "unseen-tests/GT3_precision_loss_unseen.t.sol"
     },
     {
       "id": "GT-4",
@@ -37,7 +43,9 @@
       "file": "src/ulysses-amm/UlyssesPool.sol",
       "line": 312,
       "mechanism": "token-handling",
-      "description": "Transfer return value not checked, silent failure possible"
+      "description": "Transfer return value not checked, silent failure possible",
+      "exploit_script": "test/exploits/GT4_unchecked_transfer.t.sol",
+      "unseen_test_file": "unseen-tests/GT4_unchecked_transfer_unseen.t.sol"
     }
   ]
 }

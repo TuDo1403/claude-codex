@@ -268,6 +268,7 @@ function main() {
   // Global .task/ fallbacks removed to prevent cross-run contamination.
   const runDir = join(TASK_DIR, runId);
   const findingsFiles = [
+    join(runDir, 'consolidated-findings.json'),
     join(runDir, 'codex-detect-findings.json'),
     join(runDir, 'opus-detect-findings.json'),
     join(runDir, 'codex-deep-exploit-review.json'),

@@ -10,7 +10,9 @@
       "file": "src/token/Tranche.sol",
       "line": 58,
       "mechanism": "state-corruption",
-      "description": "ERC20 transfer hooks can re-enter and corrupt share accounting"
+      "description": "ERC20 transfer hooks can re-enter and corrupt share accounting",
+      "exploit_script": "test/exploits/GT1_state_corruption.t.sol",
+      "unseen_test_file": "unseen-tests/GT1_state_corruption_unseen.t.sol"
     },
     {
       "id": "GT-2",
@@ -19,7 +21,9 @@
       "file": "src/InvestmentManager.sol",
       "line": 234,
       "mechanism": "arithmetic",
-      "description": "Share price rounding favors last withdrawer at expense of pool"
+      "description": "Share price rounding favors last withdrawer at expense of pool",
+      "exploit_script": "test/exploits/GT2_rounding_error.t.sol",
+      "unseen_test_file": "unseen-tests/GT2_rounding_error_unseen.t.sol"
     },
     {
       "id": "GT-3",
@@ -28,7 +32,9 @@
       "file": "src/gateway/Gateway.sol",
       "line": 147,
       "mechanism": "cross-contract",
-      "description": "Gateway accepts messages from unverified source chains"
+      "description": "Gateway accepts messages from unverified source chains",
+      "exploit_script": "test/exploits/GT3_cross_chain_validation.t.sol",
+      "unseen_test_file": "unseen-tests/GT3_cross_chain_validation_unseen.t.sol"
     }
   ]
 }
