@@ -1,0 +1,9 @@
+{
+  "id": "bench-002",
+  "name": "Oracle Manipulation",
+  "repo_url": "https://github.com/code-423n4/2023-05-maia",
+  "commit": "main",
+  "build_command": "forge build",
+  "scope_files": ["src/ulysses-omnichain/BranchBridgeAgent.sol", "src/governance/GovernorBravoDelegateMaia.sol", "src/rewards/FlywheelCore.sol", "src/ulysses-amm/UlyssesPool.sol"],
+  "setup_notes": "Large repo. May need --force flag for forge build."
+}

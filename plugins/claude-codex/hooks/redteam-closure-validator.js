@@ -17,6 +17,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readAndNormalizeJson } from './normalize.js';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TASK_DIR = join(PROJECT_DIR, '.task');
@@ -26,15 +27,6 @@ function readFile(filePath) {
   try {
     if (!existsSync(filePath)) return null;
     return readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
-}
-
-function readJson(filePath) {
-  try {
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
   } catch {
     return null;
   }
@@ -59,7 +51,7 @@ function loadConfig() {
     }
   };
 
-  const config = readJson(configPath);
+  const config = readAndNormalizeJson(configPath);
   if (config?.blind_audit_sc) {
     return { ...defaults.blind_audit_sc, ...config.blind_audit_sc };
   }
@@ -192,7 +184,7 @@ function validateGateE() {
   }
 
   // Validate artifact if present
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (artifact) {
     if (!artifact.ready_for_final_gate) {
       return {

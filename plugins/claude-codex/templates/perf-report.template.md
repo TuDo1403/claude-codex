@@ -162,6 +162,22 @@ Overall gas change: -7500 (-5.25%)
 | Branch coverage | [%] | [%] | ✓/⚠️ |
 | Function coverage | [%] | [%] | ✓/⚠️ |
 
+### 4.4 EVMbench-Aligned Security Performance Scorecard
+
+| Metric | Definition | Target | Actual | Status |
+|--------|------------|--------|--------|--------|
+| Discovery coverage | Reviewed entrypoints / total entrypoints | 100% | [%] | ✓/⚠️ |
+| High/Med closure rate | Patched and validated High/Med findings / validated High/Med findings | 100% | [%] | ✓/⚠️ |
+| Exploit replay block rate | Patched findings where exploit replay fails / patched findings | 100% | [%] | ✓/⚠️ |
+| Patch regression rate | Patched findings that break existing tests | 0% | [%] | ✓/⚠️ |
+| Hint level reached | none / low / medium / high | <= medium | [level] | ✓/⚠️ |
+| Token efficiency | (validated High/Med findings) / 10k output tokens | project-specific | [value] | ✓/⚠️ |
+
+**Scorecard Notes:**
+- Discovery is usually the bottleneck; log why coverage is incomplete.
+- If `high` hints were required, document what was missing in baseline discovery.
+- Include replay evidence locations for each High/Med finding ID.
+
 ## 5. Summary
 
 ### 5.1 Optimizations Applied

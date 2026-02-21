@@ -17,7 +17,39 @@
     "sonnet",
     "opus",
     "codex",
-    "task-based"
+    "task-based",
+    "smart-contracts",
+    "security-audit",
+    "evmbench"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "requires": {
+    "runtimes": {
+      "bun": {
+        "description": "JavaScript runtime for hooks and scripts",
+        "install": "curl -fsSL https://bun.sh/install | bash",
+        "required": true
+      }
+    },
+    "tools": {
+      "codex": {
+        "description": "OpenAI Codex CLI for independent AI gate reviews",
+        "install": "npm install -g @openai/codex",
+        "required_for": ["multi-ai", "smart-contract-secure", "blind-audit-sc"],
+        "required": true
+      },
+      "foundry": {
+        "description": "Smart contract development framework (forge, cast, anvil)",
+        "install": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
+        "required_for": ["smart-contract-secure", "blind-audit-sc", "gas-opt-contracts"],
+        "required": false
+      },
+      "slither": {
+        "description": "Smart contract static analysis tool",
+        "install": "pip install slither-analyzer",
+        "required_for": ["smart-contract-secure", "blind-audit-sc"],
+        "required": false
+      }
+    }
+  }
 }

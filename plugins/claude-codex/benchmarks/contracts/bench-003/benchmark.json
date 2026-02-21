@@ -1,0 +1,9 @@
+{
+  "id": "bench-003",
+  "name": "Token Handling Edge Cases",
+  "repo_url": "https://github.com/code-423n4/2023-09-centrifuge",
+  "commit": "main",
+  "build_command": "forge build",
+  "scope_files": ["src/token/Tranche.sol", "src/InvestmentManager.sol", "src/gateway/Gateway.sol"],
+  "setup_notes": "Standard Foundry project."
+}

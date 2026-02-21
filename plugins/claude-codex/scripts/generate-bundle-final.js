@@ -212,7 +212,10 @@ function generateAuditTrail(bundleDir, runId) {
   const reviews = [
     { name: 'Spec Compliance Review', file: join(DOCS_DIR, 'reviews', 'spec-compliance-review.md') },
     { name: 'Exploit Hunt Review', file: join(DOCS_DIR, 'reviews', 'exploit-hunt-review.md') },
-    { name: 'Red-Team Issue Log', file: join(DOCS_DIR, 'reviews', 'red-team-issue-log.md') }
+    { name: 'Red-Team Issue Log', file: join(DOCS_DIR, 'reviews', 'red-team-issue-log.md') },
+    { name: 'Opus Attack Plan', file: join(DOCS_DIR, 'reviews', 'opus-attack-plan.md') },
+    { name: 'Codex Deep Exploit Review', file: join(DOCS_DIR, 'reviews', 'codex-deep-exploit-review.md') },
+    { name: 'Dispute Resolution', file: join(DOCS_DIR, 'reviews', 'dispute-resolution.md') }
   ];
 
   for (const review of reviews) {
@@ -282,7 +285,16 @@ async function main() {
     { src: join(DOCS_DIR, 'reviews', 'spec-compliance-review.md'), dest: 'reviews/spec-compliance-review.md' },
     { src: join(DOCS_DIR, 'reviews', 'exploit-hunt-review.md'), dest: 'reviews/exploit-hunt-review.md' },
     { src: join(DOCS_DIR, 'reviews', 'red-team-issue-log.md'), dest: 'reviews/red-team-issue-log.md' },
-    { src: join(DOCS_DIR, 'reviews', 'design-review-opus.md'), dest: 'reviews/design-review-opus.md' }
+    { src: join(DOCS_DIR, 'reviews', 'design-review-opus.md'), dest: 'reviews/design-review-opus.md' },
+    // Adversarial mode outputs (Stage 4A/4B/4C)
+    { src: join(DOCS_DIR, 'reviews', 'opus-attack-plan.md'), dest: 'reviews/opus-attack-plan.md' },
+    { src: join(DOCS_DIR, 'reviews', 'codex-deep-exploit-review.md'), dest: 'reviews/codex-deep-exploit-review.md' },
+    { src: join(DOCS_DIR, 'reviews', 'dispute-resolution.md'), dest: 'reviews/dispute-resolution.md' },
+    // Calibration outputs
+    { src: join(DOCS_DIR, 'reviews', 'detect-findings.md'), dest: 'reviews/detect-findings.md' },
+    { src: join(DOCS_DIR, 'reviews', 'patch-validation.md'), dest: 'reviews/patch-validation.md' },
+    { src: join(DOCS_DIR, 'reviews', 'exploit-validation.md'), dest: 'reviews/exploit-validation.md' },
+    { src: join(DOCS_DIR, 'reviews', 'discovery-scoreboard.md'), dest: 'reviews/discovery-scoreboard.md' }
   ];
 
   for (const file of reviewFiles) {

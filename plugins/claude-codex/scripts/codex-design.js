@@ -28,10 +28,78 @@ const os = require('os');
 
 // ================== CONFIGURATION ==================
 
-const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes for design tasks
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes for design tasks
 const TASK_DIR = '.task';
 const DOCS_DIR = 'docs';
 const STDERR_FILE = path.join(TASK_DIR, 'codex_design_stderr.log');
+
+function loadTimeoutFromConfig(stageKey, defaultMs) {
+  try {
+    const configPath = path.join(process.cwd(), '.claude-codex.json');
+    if (!fs.existsSync(configPath)) return defaultMs;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config?.stage_timeout_ms?.[stageKey] ?? defaultMs;
+  } catch {
+    return defaultMs;
+  }
+}
+
+const TIMEOUT_MS = loadTimeoutFromConfig('design', DEFAULT_TIMEOUT_MS);
+
+function loadCodexStageConfig(stageKey) {
+  try {
+    const configPath = path.join(process.cwd(), '.claude-codex.json');
+    if (!fs.existsSync(configPath)) return null;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config?.codex_stages?.[stageKey] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeExecutionLog(stage, data) {
+  try {
+    const logsDir = path.join('reports', 'execution-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logFile = path.join(logsDir, `${stage}-${timestamp}.log`);
+    const content = Object.entries(data)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n') + '\n';
+    fs.writeFileSync(logFile, content);
+  } catch {
+    // Non-critical, don't fail
+  }
+}
+
+/**
+ * Parse token usage from Codex CLI output (G9)
+ */
+function parseTokenUsage(output) {
+  if (!output) return null;
+  const usage = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+  let found = false;
+  const nestedPattern = /"usage"\s*:\s*\{([^}]+)\}/g;
+  let match;
+  while ((match = nestedPattern.exec(output)) !== null) {
+    try {
+      const usageObj = JSON.parse(`{${match[1]}}`);
+      usage.input_tokens += usageObj.input_tokens || usageObj.prompt_tokens || 0;
+      usage.output_tokens += usageObj.output_tokens || usageObj.completion_tokens || 0;
+      found = true;
+    } catch { /* skip */ }
+  }
+  const totalMatch = output.match(/total[_ ]tokens?\s*[:=]\s*(\d+)/i);
+  if (totalMatch && !found) {
+    usage.total_tokens = parseInt(totalMatch[1]);
+    found = true;
+  }
+  if (found) {
+    usage.total_tokens = usage.total_tokens || (usage.input_tokens + usage.output_tokens);
+    return usage;
+  }
+  return null;
+}
 
 // Output artifacts by type
 const OUTPUT_ARTIFACTS = {
@@ -262,11 +330,20 @@ The artifact should have: id, status, invariants[], acceptance_criteria[], artif
   }
 
   // Build command args
+  const stageConfig = loadCodexStageConfig(args.type === 'spec' ? 'design' : args.type);
+
   const cmdArgs = [
     'exec',
     '--full-auto',
     '--skip-git-repo-check'
   ];
+
+  if (stageConfig?.model) {
+    cmdArgs.push('-m', stageConfig.model);
+  }
+  if (stageConfig?.reasoning) {
+    cmdArgs.push('-c', `model_reasoning_effort="${stageConfig.reasoning}"`);
+  }
 
   // Add resume flag if resuming
   if (isResume) {
@@ -431,6 +508,7 @@ function validateOutput(designType) {
 let currentDesignType = null;
 
 async function main() {
+  const startTime = Date.now();
   const args = parseArgs();
   currentDesignType = args.type;
   const platform = getPlatform();
@@ -535,6 +613,25 @@ async function main() {
 
   // Success - create session marker
   createSessionMarker(args.type);
+
+  const durationMs = Date.now() - startTime;
+  const designStageConfig = loadCodexStageConfig(args.type === 'spec' ? 'design' : args.type);
+  const tokenUsage = parseTokenUsage(result.stdout);
+  const logData = {
+    start_time: new Date(startTime).toISOString(),
+    model: designStageConfig?.model || 'default',
+    reasoning: designStageConfig?.reasoning || 'default',
+    timeout_ms: TIMEOUT_MS,
+    exit_code: 0,
+    duration_ms: durationMs,
+    files_created: validation.filesCreated.join(', ')
+  };
+  if (tokenUsage) {
+    logData.input_tokens = tokenUsage.input_tokens;
+    logData.output_tokens = tokenUsage.output_tokens;
+    logData.total_tokens = tokenUsage.total_tokens;
+  }
+  writeExecutionLog(`design-${args.type}`, logData);
 
   const config = OUTPUT_ARTIFACTS[args.type];
   console.log(JSON.stringify({

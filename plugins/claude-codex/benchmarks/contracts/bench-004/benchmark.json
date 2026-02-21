@@ -1,0 +1,9 @@
+{
+  "id": "bench-004",
+  "name": "Cross-Contract Logic",
+  "repo_url": "https://github.com/code-423n4/2023-10-ethena",
+  "commit": "main",
+  "build_command": "forge build",
+  "scope_files": ["src/StakedUSDeV2.sol", "src/EthenaMinting.sol"],
+  "setup_notes": "Standard Foundry project."
+}

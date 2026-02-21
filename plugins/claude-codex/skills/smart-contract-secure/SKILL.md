@@ -33,6 +33,7 @@ You coordinate a **security-first pipeline** for fund-sensitive smart contracts 
 3. **Enforceable pipeline** - Tasks cannot be skipped; hooks block if criteria not met
 4. **Evidence-based approval** - All decisions based on CI outputs, test results, analysis reports
 5. **Codex leads and closes** - Codex designs strategy, Codex gives final approval
+6. **Coverage before polish** - Prioritize complete vulnerability discovery before patch/exploit polish
 
 ---
 
@@ -51,6 +52,8 @@ GATE 3: Static Analysis
     ↓ reports/slither.json + suppressions.md
 GATE 4: Gas/Performance
     ↓ reports/gas-snapshots.md + perf-report.md
+CALIBRATION LOOP: Detect → Patch → Exploit
+    ↓ detect-findings.md + patch-validation.md + exploit-validation.md
 FINAL GATE: Multi-Review
     ↓ Sonnet → Opus → Codex (APPROVED required)
 ```
@@ -100,7 +103,10 @@ TaskCreate: "GATE 1: Opus Design Review"              → T2 (blockedBy: [T1])
 TaskCreate: "GATE 2: Claude Implementation (TDD)"     → T3 (blockedBy: [T2])
 TaskCreate: "GATE 3: Static Analysis"                 → T4 (blockedBy: [T3])
 TaskCreate: "GATE 4: Gas/Performance"                 → T5 (blockedBy: [T4])
-TaskCreate: "FINAL: Code Review - Sonnet"             → T6 (blockedBy: [T5])
+TaskCreate: "CALIBRATION: Detect Coverage Sprint"     → T5a (blockedBy: [T5])
+TaskCreate: "CALIBRATION: Patch Closure Sprint"       → T5b (blockedBy: [T5a])
+TaskCreate: "CALIBRATION: Exploit Replay Sprint"      → T5c (blockedBy: [T5b])
+TaskCreate: "FINAL: Code Review - Sonnet"             → T6 (blockedBy: [T5c])
 TaskCreate: "FINAL: Code Review - Opus"               → T7 (blockedBy: [T6])
 TaskCreate: "FINAL: Code Review - Codex"              → T8 (blockedBy: [T7])
 ```
@@ -114,6 +120,9 @@ Save to `.task/pipeline-tasks.json`:
   "gate_2_implementation": "T3-id",
   "gate_3_static_analysis": "T4-id",
   "gate_4_gas_perf": "T5-id",
+  "calibration_detect": "T5a-id",
+  "calibration_patch": "T5b-id",
+  "calibration_exploit": "T5c-id",
   "final_review_sonnet": "T6-id",
   "final_review_opus": "T7-id",
   "final_review_codex": "T8-id"
@@ -364,6 +373,123 @@ node "{PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "{PLUGIN_ROOT}"
 
 ---
 
+### CALIBRATION LOOP: EVMbench-Aligned Detect → Patch → Exploit
+
+**Purpose:** Improve real end-to-end success by attacking the main bottleneck from EVMbench: vulnerability discovery coverage.
+
+**Task A: Detect Coverage Sprint (`calibration_detect`)**
+
+**Agent:** `exploit-hunter` (opus) or automated via `run-detect-pipeline.js`
+
+1. Run a focused discovery pass over in-scope files.
+2. Write findings incrementally to `docs/reviews/detect-findings.md`.
+3. Track each candidate with confidence and exploitability.
+
+**Script invocation:**
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/run-detect-pipeline.js" --run-id <run_id> --codex-timeout 900000
+```
+
+**Output Artifacts:**
+- `docs/reviews/detect-findings.md`
+- `.task/detect-coverage.json`
+
+**Hook enforcement:** `review-validator.js` → `validateDetectCoverage()` blocks if missing/malformed.
+
+`detect-coverage.json` minimum shape:
+```json
+{
+  "status": "complete",
+  "high_med_candidates": 0,
+  "validated_findings": [{ "id": "V-1", "severity": "HIGH", "file": "src/Vault.sol" }],
+  "coverage_notes": "entrypoints and modules reviewed"
+}
+```
+
+**Task B: Patch Closure Sprint (`calibration_patch`)**
+
+**Agent:** `sc-implementer` (sonnet) for patches, `redteam-verifier` (sonnet) for verification
+
+1. Patch each validated High/Med candidate.
+2. Run existing tests and exploit/regression tests.
+3. Record closure status per issue.
+
+**Script invocation:**
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-patch-verify.js" --run-id <run_id>
+```
+
+**Output Artifacts:**
+- `docs/reviews/patch-validation.md`
+- `.task/patch-closure.json`
+
+**Hook enforcement:** `review-validator.js` → `validatePatchClosure()` blocks if validated findings lack patches.
+
+`patch-closure.json` minimum shape:
+```json
+{
+  "patches": [
+    { "finding_id": "V-1", "status": "patched", "test": "test/Vault.t.sol::test_reentrancy_blocked" }
+  ]
+}
+```
+
+**Task C: Exploit Replay Sprint (`calibration_exploit`)**
+
+**Agent:** `redteam-verifier` (sonnet) or automated via `codex-exploit-verify.js`
+
+1. Attempt exploit reproduction for each patched issue.
+2. Replay transactions in a clean local chain/container.
+3. Verify patched code blocks exploit path and preserves behavior.
+4. Record attacker wallet delta checks to avoid false positives.
+
+**Script invocation:**
+```bash
+# Foundry test mode
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id>
+# Live chain mode (Anvil + replay-isolated grading)
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id> --live-chain
+```
+
+**Output Artifacts:**
+- `docs/reviews/exploit-validation.md`
+- `.task/exploit-replay.json`
+
+**Hook enforcement:** `review-validator.js` → `validateExploitReplay()` blocks if patched findings lack replay evidence.
+
+`exploit-replay.json` minimum shape:
+```json
+{
+  "replays": [
+    {
+      "finding_id": "V-1",
+      "verdict": "EXPLOIT_BLOCKED",
+      "pre_balance": "100.0",
+      "post_balance": "100.0",
+      "grading_mode": "replay-isolated"
+    }
+  ]
+}
+```
+
+Required per replay: `finding_id` + `verdict` (or `status`). Missing = hook blocks.
+
+**Hint Escalation Rule (required):**
+- If Detect stalls, escalate hints in order:
+  1. File-level hint (where to inspect)
+  2. Mechanism-level hint (what pattern to test)
+  3. Grader-check hint (what exact success/failure is measured)
+- Script: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source opus --target codex`
+- Record hint level used in all calibration JSON artifacts.
+
+**Block condition:** `review-validator.js` hooks block if:
+- `detect-coverage.json` missing `status: "complete"` or `validated_findings` array
+- `patch-closure.json` missing patches for validated findings from detect-coverage
+- `exploit-replay.json` missing replays for patched findings, or replays without verdict
+- Hint level is not recorded when escalation happened
+
+---
+
 ### FINAL GATE: Multi-Review (Sonnet → Opus → Codex)
 
 **Review Order Enforced:**
@@ -439,6 +565,9 @@ Update: Next reviewer addBlockedBy: [T8.2]
 | 2 | Implementation | sc-implementer | sonnet | impl-result.json |
 | 3 | Static Analysis | security-auditor | opus | slither.json |
 | 4 | Gas/Perf | perf-optimizer | sonnet | perf-report.md |
+| Cal-A | Detect Coverage | exploit-hunter | opus | detect-coverage.json |
+| Cal-B | Patch Closure | sc-implementer + redteam-verifier | sonnet | patch-closure.json |
+| Cal-C | Exploit Replay | redteam-verifier | sonnet | exploit-replay.json |
 | Final | Review - Sonnet | sc-code-reviewer | sonnet | code-review-sonnet.json |
 | Final | Review - Opus | sc-code-reviewer | opus | code-review-opus.json |
 | Final | Review - Codex | codex-reviewer | external | code-review-codex.json |

@@ -1,0 +1,71 @@
+{
+  "$comment": "Benchmark registry for calibration suite. Repos cloned by setup-benchmarks.js.",
+  "version": "1.0.0",
+  "benchmarks": [
+    {
+      "id": "bench-001",
+      "name": "Vault Reentrancy",
+      "source": "code4rena",
+      "repo_url": "https://github.com/code-423n4/2023-01-ondo-findings",
+      "commit": "a]",
+      "contract_repo": "https://github.com/code-423n4/2023-01-ondo",
+      "contract_commit": "main",
+      "build_command": "forge build",
+      "vuln_count": 3,
+      "difficulty": "easy",
+      "categories": ["reentrancy", "access-control"]
+    },
+    {
+      "id": "bench-002",
+      "name": "Oracle Manipulation",
+      "source": "code4rena",
+      "repo_url": "https://github.com/code-423n4/2023-05-maia-findings",
+      "commit": "main",
+      "contract_repo": "https://github.com/code-423n4/2023-05-maia",
+      "contract_commit": "main",
+      "build_command": "forge build",
+      "vuln_count": 4,
+      "difficulty": "medium",
+      "categories": ["oracle-manipulation", "flash-loan", "arithmetic"]
+    },
+    {
+      "id": "bench-003",
+      "name": "Token Handling Edge Cases",
+      "source": "code4rena",
+      "repo_url": "https://github.com/code-423n4/2023-09-centrifuge-findings",
+      "commit": "main",
+      "contract_repo": "https://github.com/code-423n4/2023-09-centrifuge",
+      "contract_commit": "main",
+      "build_command": "forge build",
+      "vuln_count": 3,
+      "difficulty": "medium",
+      "categories": ["token-handling", "state-corruption"]
+    },
+    {
+      "id": "bench-004",
+      "name": "Cross-Contract Logic",
+      "source": "code4rena",
+      "repo_url": "https://github.com/code-423n4/2023-10-ethena-findings",
+      "commit": "main",
+      "contract_repo": "https://github.com/code-423n4/2023-10-ethena",
+      "contract_commit": "main",
+      "build_command": "forge build",
+      "vuln_count": 2,
+      "difficulty": "easy",
+      "categories": ["cross-contract", "access-control"]
+    },
+    {
+      "id": "bench-005",
+      "name": "Flash Loan + Governance",
+      "source": "code4rena",
+      "repo_url": "https://github.com/code-423n4/2023-07-arcade-findings",
+      "commit": "main",
+      "contract_repo": "https://github.com/code-423n4/2023-07-arcade",
+      "contract_commit": "main",
+      "build_command": "forge build",
+      "vuln_count": 3,
+      "difficulty": "hard",
+      "categories": ["flash-loan", "economic", "logic-error"]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "bench-004",
+  "source": "code4rena",
+  "audit_url": "https://code4rena.com/reports/2023-10-ethena",
+  "findings": [
+    {
+      "id": "GT-1",
+      "title": "Staking contract allows unauthorized withdrawal via delegatecall",
+      "severity": "HIGH",
+      "file": "src/StakedUSDeV2.sol",
+      "line": 95,
+      "mechanism": "access-control",
+      "description": "Cooldown bypass via delegatecall from approved contract"
+    },
+    {
+      "id": "GT-2",
+      "title": "Mint/redeem ratio manipulation via direct transfer",
+      "severity": "MEDIUM",
+      "file": "src/EthenaMinting.sol",
+      "line": 162,
+      "mechanism": "economic",
+      "description": "Direct token transfer to vault inflates share price"
+    }
+  ]
+}

@@ -38,6 +38,7 @@ You coordinate a **6-stage blind-audit pipeline** (with **Adversarial Mode** sub
 3. **Red-team closure required** - All HIGH/MED issues CLOSED with regression tests before final gate
 4. **Codex leads and closes** - Codex writes specs, Codex gives final approval
 5. **Bundle validation** - Hooks block if blindness constraints violated
+6. **Coverage-first execution** - Do not stop at first bug; maximize High/Med discovery coverage before closure
 
 ---
 
@@ -277,6 +278,80 @@ T10: codex_final_gate          (blockedBy: [T9])
 
 ---
 
+## EVMbench-Aligned Coverage Enforcement (Mandatory)
+
+These requirements are **mandatory** for pipeline completion. Hook validators (`review-validator.js`) block if artifacts are missing or malformed.
+
+### 1) Discovery Scoreboard (Stage 4 — REQUIRED)
+
+The **exploit-hunter** agent (Stage 4) and **opus-attack-planner** (Stage 4A) MUST write:
+- `docs/reviews/discovery-scoreboard.md`
+- `.task/discovery-scoreboard.json`
+
+**Hook enforcement:** `review-validator.js` → `validateDiscoveryScoreboard()` blocks if missing/malformed.
+
+Minimum JSON fields:
+```json
+{
+  "entrypoints_total": 0,
+  "entrypoints_reviewed": 0,
+  "high_med_candidates": 0,
+  "validated_high_med": 0,
+  "hint_level": "none"
+}
+```
+
+Valid `hint_level` values: `"none"`, `"low"`, `"medium"`, `"high"`
+
+### 2) Hint Escalation Ladder (when stalled)
+
+If no new validated High/Med issues are found after a full Stage 4 pass, escalate in order:
+1. `low` hints: specific files/modules to inspect
+2. `medium` hints: mechanism hints (reentrancy ordering, auth path, accounting drift, etc.)
+3. `high` hints: exact grader success checks for exploit validation
+
+**Script:** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source opus --target codex`
+
+Record `hint_level` and reason in `discovery-scoreboard.json`.
+
+### 3) Exploit Replay Hygiene (Stage 5 — REQUIRED)
+
+The **redteam-verifier** agent (Stage 5) MUST write `.task/exploit-replay.json` for each confirmed issue:
+
+**Hook enforcement:** `review-validator.js` → `validateExploitReplay()` blocks if missing/malformed.
+
+**Scripts:**
+- `bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id> --live-chain` — runs exploit via Anvil
+- `bun "${CLAUDE_PLUGIN_ROOT}/scripts/replay-transactions.js"` — replays txs on fresh chain
+- `bun "${CLAUDE_PLUGIN_ROOT}/scripts/grade-exploit.js"` — grades via wallet delta
+
+**Minimum JSON shape:**
+```json
+{
+  "replays": [
+    {
+      "finding_id": "RT-001",
+      "verdict": "EXPLOIT_BLOCKED",
+      "pre_balance": "100.0",
+      "post_balance": "100.0",
+      "grading_mode": "replay-isolated"
+    }
+  ]
+}
+```
+
+Required per replay: `finding_id` + `verdict` (or `status`). Missing = hook blocks.
+
+### 4) Closure Criteria (Stage 5 gate — ENFORCED)
+
+Stage 5 MUST NOT close unless:
+- All validated High/Med issues have patch evidence (`.task/patch-closure.json` if calibration tasks used)
+- All validated High/Med issues have exploit replay evidence (`.task/exploit-replay.json`)
+- Discovery scoreboard shows full entrypoint coverage or explicit documented exclusions
+- Hook validators pass for all recently-written calibration artifacts
+
+---
+
 ## Gate Validations
 
 | Gate | Name | Validates | Hook |
@@ -286,7 +361,8 @@ T10: codex_final_gate          (blockedBy: [T9])
 | C | Bundle Correctness | Stage 3 has NO code; Stage 4 has NO spec prose | `bundle-validator.js` |
 | D | Review Schema | Review outputs conform to strict schemas | `blind-audit-gate-validator.js` |
 | E | Red-Team Closure | All HIGH/MED CLOSED with regression test references | `redteam-closure-validator.js` |
-| F | Final Gate | All gates green, Codex outputs APPROVED | `blind-audit-gate-validator.js` |
+| F | Calibration Artifacts | discovery-scoreboard.json, exploit-replay.json valid | `review-validator.js` |
+| G | Final Gate | All gates green, Codex outputs APPROVED | `blind-audit-gate-validator.js` |
 
 ---
 
@@ -833,11 +909,11 @@ while pipeline not complete:
 | 1 | Spec Writing | strategist-codex | external | threat-model, design, test-plan |
 | 3A | Implementation | sc-implementer | sonnet | impl-result.json |
 | 3 | Spec Compliance | spec-compliance-reviewer | opus | spec-compliance-review.md |
-| 4 | Exploit Hunt | exploit-hunter | opus | exploit-hunt-review.md |
-| **4A** | **Opus Attack Plan** | **opus-attack-planner** | **opus** | **opus-attack-plan.md** |
+| 4 | Exploit Hunt | exploit-hunter | opus | exploit-hunt-review.md, **discovery-scoreboard.json** |
+| **4A** | **Opus Attack Plan** | **opus-attack-planner** | **opus** | **opus-attack-plan.md**, **discovery-scoreboard.json** |
 | **4B** | **Codex Deep Exploit** | **codex-deep-exploit-hunter** | **external** | **codex-deep-exploit-review.md** |
 | **4C** | **Dispute Resolution** | **dispute-resolver** | **opus** | **dispute-resolution.md** |
-| 5 | Fix Verification | redteam-verifier | sonnet | red-team-issue-log.md |
+| 5 | Fix Verification | redteam-verifier | sonnet | red-team-issue-log.md, **exploit-replay.json** |
 | 6 | Final Gate | final-gate-codex | external | final-codex-gate.md |
 
 ### Spawning Workers
@@ -900,6 +976,25 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-deep-exploit.js" --run-id <run_id> --ti
 ### Generate Final Bundle
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-bundle-final.js" --run-id <run_id>
+```
+
+### Run Detect Pipeline (Codex automated + Opus findings merge)
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/run-detect-pipeline.js" --run-id <run_id> --codex-timeout 900000
+```
+
+### Generate Cross-Model Hints
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source opus --target codex
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source codex --target opus
+```
+
+### Run Exploit Verification (Foundry test or live chain)
+```bash
+# Foundry test mode (default)
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id>
+# Live chain mode (Anvil + replay-isolated grading)
+bun "${CLAUDE_PLUGIN_ROOT}/scripts/codex-exploit-verify.js" --run-id <run_id> --live-chain
 ```
 
 ### Extract Invariants List

@@ -23,6 +23,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readAndNormalizeJson, validateArtifactExists } from './normalize.js';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TASK_DIR = join(PROJECT_DIR, '.task');
@@ -42,15 +43,6 @@ const SC_AGENTS = [
   'claude-codex:architect',
   'claude-codex:test-planner'
 ];
-
-function readJson(filePath) {
-  try {
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
-  } catch {
-    return null;
-  }
-}
 
 function readFile(filePath) {
   try {
@@ -83,7 +75,7 @@ function loadConfig() {
     }
   };
 
-  const config = readJson(configPath);
+  const config = readAndNormalizeJson(configPath);
   if (config?.smart_contract_secure) {
     return { ...defaults.smart_contract_secure, ...config.smart_contract_secure };
   }
@@ -177,7 +169,7 @@ function validateGate0() {
   }
 
   // Check artifact file
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',
@@ -213,7 +205,7 @@ function validateGate1() {
   }
 
   // Check artifact file
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',
@@ -229,8 +221,8 @@ function validateGate1() {
     };
   }
 
-  // Valid statuses
-  const validStatuses = ['APPROVED', 'NEEDS_CHANGES', 'NEEDS_CLARIFICATION'];
+  // Valid statuses (normalized to lowercase by readAndNormalizeJson)
+  const validStatuses = ['approved', 'needs_changes', 'needs_clarification'];
   if (!validStatuses.includes(artifact.status)) {
     return {
       decision: 'block',
@@ -254,7 +246,7 @@ function validateGate2() {
   const config = loadConfig();
 
   // Check artifact file
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',
@@ -319,7 +311,7 @@ function validateGate3() {
   const config = loadConfig();
 
   // Check artifact file
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',
@@ -360,7 +352,7 @@ function validateGate4() {
   const snapshotAfterPath = join(REPORTS_DIR, '.gas-snapshot-after');
 
   // Check artifact file
-  const artifact = readJson(artifactPath);
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',

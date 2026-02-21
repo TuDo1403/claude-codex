@@ -1,0 +1,43 @@
+{
+  "id": "bench-002",
+  "source": "code4rena",
+  "audit_url": "https://code4rena.com/reports/2023-05-maia",
+  "findings": [
+    {
+      "id": "GT-1",
+      "title": "UniswapV3 TWAP oracle can be manipulated in low-liquidity pools",
+      "severity": "HIGH",
+      "file": "src/ulysses-omnichain/BranchBridgeAgent.sol",
+      "line": 275,
+      "mechanism": "oracle-manipulation",
+      "description": "Price oracle relies on single-block TWAP which can be manipulated"
+    },
+    {
+      "id": "GT-2",
+      "title": "Flash loan allows governance vote manipulation",
+      "severity": "HIGH",
+      "file": "src/governance/GovernorBravoDelegateMaia.sol",
+      "line": 104,
+      "mechanism": "flash-loan",
+      "description": "Governance votes can be inflated via flash-borrowed tokens"
+    },
+    {
+      "id": "GT-3",
+      "title": "Precision loss in reward calculation",
+      "severity": "MEDIUM",
+      "file": "src/rewards/FlywheelCore.sol",
+      "line": 89,
+      "mechanism": "arithmetic",
+      "description": "Division before multiplication causes precision loss in reward accrual"
+    },
+    {
+      "id": "GT-4",
+      "title": "Unchecked return value on token transfer",
+      "severity": "MEDIUM",
+      "file": "src/ulysses-amm/UlyssesPool.sol",
+      "line": 312,
+      "mechanism": "token-handling",
+      "description": "Transfer return value not checked, silent failure possible"
+    }
+  ]
+}

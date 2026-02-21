@@ -21,6 +21,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { readAndNormalizeJson } from './normalize.js';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TASK_DIR = join(PROJECT_DIR, '.task');
@@ -41,25 +42,11 @@ function loadConfig() {
     dispute_max_rounds: 3
   };
 
-  try {
-    if (!existsSync(configPath)) return defaults;
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    if (config?.blind_audit_sc?.adversarial) {
-      return { ...defaults, ...config.blind_audit_sc.adversarial };
-    }
-    return defaults;
-  } catch {
-    return defaults;
+  const config = readAndNormalizeJson(configPath);
+  if (config?.blind_audit_sc?.adversarial) {
+    return { ...defaults, ...config.blind_audit_sc.adversarial };
   }
-}
-
-function readJson(filePath) {
-  try {
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
-  } catch {
-    return null;
-  }
+  return defaults;
 }
 
 function findLatestRunDir() {
@@ -98,10 +85,10 @@ function validateOpusAttackPlan(runDir, config) {
   const jsonPath = join(runDir, 'opus-attack-plan.json');
   const mdPath = join(DOCS_DIR, 'reviews', 'opus-attack-plan.md');
 
-  let data = readJson(jsonPath);
+  let data = readAndNormalizeJson(jsonPath);
   if (!data) {
     // Try alternate location
-    data = readJson(join(TASK_DIR, 'opus-attack-plan.json'));
+    data = readAndNormalizeJson(join(TASK_DIR, 'opus-attack-plan.json'));
   }
 
   if (!data) {
@@ -164,9 +151,9 @@ function validateCodexDeepExploitReview(runDir, config) {
   const errors = [];
 
   const jsonPath = join(runDir, 'codex-deep-exploit-review.json');
-  let data = readJson(jsonPath);
+  let data = readAndNormalizeJson(jsonPath);
   if (!data) {
-    data = readJson(join(TASK_DIR, 'codex-deep-exploit-review.json'));
+    data = readAndNormalizeJson(join(TASK_DIR, 'codex-deep-exploit-review.json'));
   }
 
   if (!data) {
@@ -224,9 +211,9 @@ function validateDisputeResolution(runDir, config) {
   const errors = [];
 
   const jsonPath = join(runDir, 'dispute-resolution.json');
-  let data = readJson(jsonPath);
+  let data = readAndNormalizeJson(jsonPath);
   if (!data) {
-    data = readJson(join(TASK_DIR, 'dispute-resolution.json'));
+    data = readAndNormalizeJson(join(TASK_DIR, 'dispute-resolution.json'));
   }
 
   if (!data) {

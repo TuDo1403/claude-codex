@@ -40,8 +40,14 @@ function readJsonFile(path: string): unknown {
 }
 
 function writeJsonFile(path: string, data: unknown): void {
-  const content = JSON.stringify(data, null, 2);
-  require("fs").writeFileSync(path, content + "\n");
+  const fs = require("fs");
+  const content = JSON.stringify(data, null, 2) + "\n";
+  const tmp = `${path}.tmp.${process.pid}`;
+  const fd = fs.openSync(tmp, "w");
+  fs.writeSync(fd, content);
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tmp, path);
 }
 
 function getPath(obj: unknown, path: string): unknown {

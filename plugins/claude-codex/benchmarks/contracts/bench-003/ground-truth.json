@@ -1,0 +1,34 @@
+{
+  "id": "bench-003",
+  "source": "code4rena",
+  "audit_url": "https://code4rena.com/reports/2023-09-centrifuge",
+  "findings": [
+    {
+      "id": "GT-1",
+      "title": "Token transfer hooks allow state corruption via callback",
+      "severity": "HIGH",
+      "file": "src/token/Tranche.sol",
+      "line": 58,
+      "mechanism": "state-corruption",
+      "description": "ERC20 transfer hooks can re-enter and corrupt share accounting"
+    },
+    {
+      "id": "GT-2",
+      "title": "Rounding error in share price calculation",
+      "severity": "MEDIUM",
+      "file": "src/InvestmentManager.sol",
+      "line": 234,
+      "mechanism": "arithmetic",
+      "description": "Share price rounding favors last withdrawer at expense of pool"
+    },
+    {
+      "id": "GT-3",
+      "title": "Missing validation on cross-chain message source",
+      "severity": "HIGH",
+      "file": "src/gateway/Gateway.sol",
+      "line": 147,
+      "mechanism": "cross-contract",
+      "description": "Gateway accepts messages from unverified source chains"
+    }
+  ]
+}

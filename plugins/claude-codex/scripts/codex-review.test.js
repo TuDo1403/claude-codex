@@ -1,8 +1,11 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, setDefaultTimeout } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
+
+// codex --version check in the script can be slow; give tests more headroom
+setDefaultTimeout(15000);
 
 const SCRIPT_PATH = path.join(import.meta.dir, 'codex-review.js');
 
@@ -175,12 +178,8 @@ describe('codex-review.js', () => {
   // ================== SESSION MANAGEMENT ==================
 
   test('detects first review when no session marker exists', async () => {
-    // Create required files
-    fs.writeFileSync(
-      path.join(tempDir, '.task', 'plan-refined.json'),
-      JSON.stringify({ id: 'test', steps: [] })
-    );
-
+    // No plan-refined.json needed — start event is emitted before validation,
+    // and validation failing early avoids spawning codex (which would hang)
     const result = await runScript(
       ['--type', 'plan', '--plugin-root', mockPluginRoot],
       tempDir
@@ -194,18 +193,14 @@ describe('codex-review.js', () => {
   });
 
   test('detects subsequent review when session marker exists', async () => {
-    // Create required files
-    fs.writeFileSync(
-      path.join(tempDir, '.task', 'plan-refined.json'),
-      JSON.stringify({ id: 'test', steps: [] })
-    );
-
     // Create session marker (scoped by review type)
     fs.writeFileSync(
       path.join(tempDir, '.task', '.codex-session-plan'),
       new Date().toISOString()
     );
 
+    // No plan-refined.json — start event is emitted before validation,
+    // and validation failing early avoids spawning codex
     const result = await runScript(
       ['--type', 'plan', '--plugin-root', mockPluginRoot],
       tempDir
@@ -219,13 +214,9 @@ describe('codex-review.js', () => {
   });
 
   test('--resume flag forces resume mode', async () => {
-    // Create required files
-    fs.writeFileSync(
-      path.join(tempDir, '.task', 'plan-refined.json'),
-      JSON.stringify({ id: 'test', steps: [] })
-    );
-
     // No session marker, but --resume flag
+    // No plan-refined.json — start event is emitted before validation,
+    // and validation failing early avoids spawning codex
     const result = await runScript(
       ['--type', 'plan', '--plugin-root', mockPluginRoot, '--resume'],
       tempDir

@@ -1,0 +1,34 @@
+{
+  "id": "bench-005",
+  "source": "code4rena",
+  "audit_url": "https://code4rena.com/reports/2023-07-arcade",
+  "findings": [
+    {
+      "id": "GT-1",
+      "title": "Flash loan enables instant governance proposal passage",
+      "severity": "HIGH",
+      "file": "src/ArcadeGSCCoreVoting.sol",
+      "line": 78,
+      "mechanism": "flash-loan",
+      "description": "Borrow tokens, vote, return in same block"
+    },
+    {
+      "id": "GT-2",
+      "title": "NFT voting power double-counted after transfer",
+      "severity": "HIGH",
+      "file": "src/NFTBoostVault.sol",
+      "line": 215,
+      "mechanism": "logic-error",
+      "description": "Voting power not decremented from sender on NFT transfer"
+    },
+    {
+      "id": "GT-3",
+      "title": "Fee-on-transfer tokens break deposit accounting",
+      "severity": "MEDIUM",
+      "file": "src/ArcadeTreasury.sol",
+      "line": 108,
+      "mechanism": "token-handling",
+      "description": "Assumes received amount equals sent amount for fee tokens"
+    }
+  ]
+}

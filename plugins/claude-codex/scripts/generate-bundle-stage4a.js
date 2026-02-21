@@ -372,6 +372,55 @@ function validateNoSpecProse(bundleDir) {
   return errors;
 }
 
+/**
+ * Validate Stage 4A bundle has NO Codex output (isolation from Stage 4B).
+ * Mirrors the approach used in stage4b's validateBundle() for Opus output.
+ */
+function validateNoCodexOutput(bundleDir) {
+  const errors = [];
+  const codexOutputFiles = [
+    'codex-deep-exploit-review.md',
+    'codex-deep-exploit-review.json',
+    'codex-detect-findings.json',
+    'codex-exploit-proof.json',
+    'codex-exploit-proof.md',
+    'codex-patch-verify.json'
+  ];
+
+  function checkDir(dir) {
+    if (!existsSync(dir)) return;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        checkDir(fullPath);
+      } else if (entry.isFile()) {
+        // Check filename
+        for (const forbidden of codexOutputFiles) {
+          if (entry.name === forbidden) {
+            errors.push(`ISOLATION VIOLATION: ${fullPath} is a Codex output file (not allowed in Stage 4A)`);
+          }
+        }
+        // Check content for Codex review signatures (skip source/test code)
+        if (!fullPath.includes('src/') && !fullPath.includes('test/')) {
+          const content = readFile(fullPath);
+          if (content) {
+            if (/Codex Deep Exploit/i.test(content)) {
+              errors.push(`ISOLATION VIOLATION: ${fullPath} contains Codex Deep Exploit references`);
+            }
+            if (/codex-deep-exploit-review/i.test(content)) {
+              errors.push(`ISOLATION VIOLATION: ${fullPath} references Codex review artifact`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  checkDir(bundleDir);
+  return errors;
+}
+
 async function main() {
   const args = parseArguments();
   const runId = args['run-id'] || `blind-audit-${Date.now()}`;
@@ -414,13 +463,17 @@ async function main() {
   console.log(`  Generated: slither-summary.md`);
 
   const violations = validateNoSpecProse(bundleDir);
-  if (violations.length > 0) {
-    console.error('\nBLINDNESS VIOLATIONS DETECTED:');
-    for (const v of violations) {
+  const isolationViolations = validateNoCodexOutput(bundleDir);
+  const allViolations = [...violations, ...isolationViolations];
+
+  if (allViolations.length > 0) {
+    console.error('\nBLINDNESS/ISOLATION VIOLATIONS DETECTED:');
+    for (const v of allViolations) {
       console.error(`  - ${v}`);
     }
-    manifest.blindness_validated = false;
-    manifest.violations = violations;
+    manifest.blindness_validated = violations.length === 0;
+    manifest.isolation_validated = isolationViolations.length === 0;
+    manifest.violations = allViolations;
 
     writeFileSync(join(bundleDir, 'MANIFEST.json'), JSON.stringify(manifest, null, 2));
     process.exit(1);

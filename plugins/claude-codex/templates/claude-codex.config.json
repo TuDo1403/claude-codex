@@ -2,74 +2,77 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$comment": "Copy this file to your project root as .claude-codex.json",
 
-  "smart_contract_secure": {
-    "description": "Configuration for the smart-contract-secure pipeline",
+  "codex_stages": {
+    "requirements":  { "model": "gpt-5.3-codex", "reasoning": "medium" },
+    "design":        { "model": "gpt-5.3-codex", "reasoning": "high" },
+    "detect":        { "model": "gpt-5.3-codex", "reasoning": "high" },
+    "exploit":       { "model": "gpt-5.3-codex", "reasoning": "xhigh" },
+    "patch_verify":  { "model": "gpt-5.3-codex", "reasoning": "high" },
+    "review":        { "model": "gpt-5.3-codex", "reasoning": "high" },
+    "final_gate":    { "model": "gpt-5.3-codex", "reasoning": "high" }
+  },
 
-    "enable_invariants": {
-      "description": "Run invariant tests in Gate 3",
-      "type": "boolean",
-      "default": true
-    },
+  "claude_models": {
+    "fast": "sonnet",
+    "deep": "opus"
+  },
 
-    "enable_slither": {
-      "description": "Run Slither static analysis in Gate 4. Use these flag --exclude-optimization --exclude-low --exclude-medium --exclude-informational --exclude-dependencies --filter-paths 'dependencies/|script/|test/foundry/' --checklist",
-      "type": "boolean",
-      "default": true
-    },
+  "stage_allocation": {
+    "$comment": "Maps pipeline stages to preferred models based on EVMbench data",
+    "requirements":    { "model": "opus",   "reason": "No evidence Codex outperforms on requirements" },
+    "design":          { "model": "codex",  "reason": "Configurable - either works" },
+    "detect_opus":     { "model": "opus",   "reason": "Opus: 45.6% detect (best single model)" },
+    "detect_codex":    { "model": "codex",  "reason": "Parallel detect - different models find different bugs" },
+    "implementation":  { "model": "sonnet", "reason": "Balanced speed/quality for implementation" },
+    "patch_verify":    { "model": "codex",  "reason": "Codex: 41.5% patch (best model)" },
+    "exploit_verify":  { "model": "codex",  "reason": "Codex: 72.2% exploit (best model)" },
+    "code_review":     { "model": "sonnet", "reason": "Quick code quality check" },
+    "deep_review":     { "model": "opus",   "reason": "Deep architectural analysis" },
+    "final_gate":      { "model": "codex",  "reason": "Independent final gate (keep)" }
+  },
 
-    "enable_semgrep": {
-      "description": "Run Semgrep static analysis in Gate 4",
-      "type": "boolean",
-      "default": false
-    },
-
-    "fuzz_runs": {
-      "description": "Number of fuzz runs for Foundry tests",
-      "type": "integer",
-      "default": 5000,
-      "minimum": 100,
-      "maximum": 100000
-    },
-
-    "gate_strictness": {
-      "description": "How strictly to enforce gates (high = block, medium = warn, low = ignore)",
-      "type": "string",
-      "enum": ["high", "medium", "low"],
-      "default": "high"
-    },
-
-    "required_coverage": {
-      "description": "Minimum test coverage percentage required",
-      "type": "integer",
-      "default": 80,
-      "minimum": 0,
-      "maximum": 100
-    },
-
-    "max_iterations": {
-      "description": "Maximum fix iterations per gate before escalating to user",
-      "type": "integer",
-      "default": 10,
-      "minimum": 1,
-      "maximum": 50
-    },
-
-    "foundry_profile": {
-      "description": "Foundry profile to use for tests",
-      "type": "string",
-      "default": "default"
-    },
-
-    "slither_args": {
-      "description": "Additional arguments for Slither",
-      "type": "string",
-      "default": ""
-    },
-
-    "semgrep_config": {
-      "description": "Semgrep config to use (p/solidity, auto, or custom path)",
-      "type": "string",
-      "default": "p/solidity"
+  "exploit_verification": {
+    "enable": true,
+    "anvil_fork": false,
+    "max_exploit_attempts_per_finding": 3,
+    "require_poc_test": true,
+    "live_chain": {
+      "enable": false,
+      "anvil_port": 8545,
+      "gatekeeper_port": 8546,
+      "rpc_gatekeeper": true,
+      "seed_eth": "100",
+      "timeout_ms": 300000
     }
+  },
+
+  "coverage": {
+    "min_entrypoint_coverage": 90,
+    "min_module_coverage": 100
+  },
+
+  "_smart_contract_secure_docs": {
+    "enable_invariants": "Run invariant tests in Gate 3 (boolean)",
+    "enable_slither": "Run Slither static analysis in Gate 4 (boolean). Flags: --exclude-optimization --exclude-low --exclude-medium --exclude-informational --exclude-dependencies --filter-paths 'dependencies/|script/|test/foundry/' --checklist",
+    "enable_semgrep": "Run Semgrep static analysis in Gate 4 (boolean)",
+    "fuzz_runs": "Number of fuzz runs for Foundry tests (100-100000)",
+    "gate_strictness": "Gate enforcement: high = block, medium = warn, low = ignore",
+    "required_coverage": "Minimum test coverage percentage (0-100)",
+    "max_iterations": "Max fix iterations per gate before escalating (1-50)",
+    "foundry_profile": "Foundry profile to use for tests",
+    "slither_args": "Additional arguments for Slither CLI",
+    "semgrep_config": "Semgrep config: p/solidity, auto, or custom path"
+  },
+  "smart_contract_secure": {
+    "enable_invariants": true,
+    "enable_slither": true,
+    "enable_semgrep": false,
+    "fuzz_runs": 5000,
+    "gate_strictness": "high",
+    "required_coverage": 80,
+    "max_iterations": 10,
+    "foundry_profile": "default",
+    "slither_args": "",
+    "semgrep_config": "p/solidity"
   }
 }

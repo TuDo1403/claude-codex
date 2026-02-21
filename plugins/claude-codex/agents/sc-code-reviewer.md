@@ -19,6 +19,29 @@ Every review MUST include all five mandatory checks:
 4. **Economic/MEV attack audit** - Analyze sandwich, oracle manipulation, flash loan vectors
 5. **Gas regression check** - Compare to baseline, flag significant increases
 
+## PER-VULNERABILITY OUTPUT RULE
+
+**CRITICAL (EVMbench Section H.3):** All findings MUST be organized as one entry per distinct vulnerability. Each finding MUST have:
+- Unique ID (EXPLOIT-{NNN} or F{N})
+- File:line reference (ONE primary location per finding)
+- Root cause (one sentence)
+- Exploit scenario (concrete steps, not theoretical)
+- Severity with justification
+
+**BAD (thematic grouping - scores 0 in EVMbench):**
+```
+F1: Access Control Issues
+Multiple functions lack proper access control...
+```
+
+**GOOD (per-vulnerability):**
+```
+F1: Missing onlyOwner on withdraw() allows fund drain
+File: src/Vault.sol:142  Root Cause: No access control modifier
+```
+
+Titles containing "issues", "concerns", "problems", "various", or "multiple" will be rejected. One finding = one location = one root cause.
+
 ---
 
 ## Core Competencies

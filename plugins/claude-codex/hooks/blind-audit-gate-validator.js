@@ -23,6 +23,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { readAndNormalizeJson, validateArtifactExists } from './normalize.js';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TASK_DIR = join(PROJECT_DIR, '.task');
@@ -43,15 +44,6 @@ function readFile(filePath) {
   try {
     if (!existsSync(filePath)) return null;
     return readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
-}
-
-function readJson(filePath) {
-  try {
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
   } catch {
     return null;
   }
@@ -78,7 +70,7 @@ function loadConfig() {
     }
   };
 
-  const config = readJson(configPath);
+  const config = readAndNormalizeJson(configPath);
   if (config?.blind_audit_sc) {
     return { ...defaults.blind_audit_sc, ...config.blind_audit_sc };
   }
@@ -155,8 +147,11 @@ function validateGateA() {
     };
   }
 
-  // Check artifact
-  const artifact = readJson(artifactPath);
+  // Check artifact exists and non-empty
+  const artifactError = validateArtifactExists(artifactPath, 'GATE A FAILED');
+  if (artifactError) return artifactError;
+
+  const artifact = readAndNormalizeJson(artifactPath);
   if (!artifact) {
     return {
       decision: 'block',
@@ -274,14 +269,9 @@ function validateGateD_SpecCompliance() {
     };
   }
 
-  // Check artifact
-  const artifact = readJson(artifactPath);
-  if (!artifact) {
-    return {
-      decision: 'block',
-      reason: 'GATE D FAILED: .task/spec-compliance-review.json missing.'
-    };
-  }
+  // Check artifact exists and non-empty
+  const specArtifactError = validateArtifactExists(artifactPath, 'GATE D FAILED');
+  if (specArtifactError) return specArtifactError;
 
   return null; // Valid
 }
@@ -324,14 +314,9 @@ function validateGateD_ExploitHunt() {
     };
   }
 
-  // Check artifact
-  const artifact = readJson(artifactPath);
-  if (!artifact) {
-    return {
-      decision: 'block',
-      reason: 'GATE D FAILED: .task/exploit-hunt-review.json missing.'
-    };
-  }
+  // Check artifact exists and non-empty
+  const huntArtifactError = validateArtifactExists(artifactPath, 'GATE D FAILED');
+  if (huntArtifactError) return huntArtifactError;
 
   return null; // Valid
 }
@@ -377,14 +362,9 @@ function validateGateF() {
     };
   }
 
-  // Check artifact
-  const artifact = readJson(artifactPath);
-  if (!artifact) {
-    return {
-      decision: 'block',
-      reason: 'GATE F FAILED: .task/final-gate.json missing.'
-    };
-  }
+  // Check artifact exists and non-empty
+  const finalArtifactError = validateArtifactExists(artifactPath, 'GATE F FAILED');
+  if (finalArtifactError) return finalArtifactError;
 
   return null; // Valid
 }

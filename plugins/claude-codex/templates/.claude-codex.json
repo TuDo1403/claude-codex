@@ -34,5 +34,18 @@
       "require_reproduction_artifacts": true,
       "auto_create_rt_issues": true
     }
+  },
+  "stage_timeout_ms": {
+    "design": 1800000,
+    "requirements": 1800000,
+    "implementation": 3600000,
+    "review": 1200000,
+    "final_gate": 1800000
+  },
+  "audit_scope": "all",
+  "model_map": {
+    "fast": "sonnet",
+    "deep": "opus",
+    "gate": "codex"
   }
 }

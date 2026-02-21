@@ -1,0 +1,9 @@
+{
+  "id": "bench-005",
+  "name": "Flash Loan + Governance",
+  "repo_url": "https://github.com/code-423n4/2023-07-arcade",
+  "commit": "main",
+  "build_command": "forge build",
+  "scope_files": ["src/ArcadeGSCCoreVoting.sol", "src/NFTBoostVault.sol", "src/ArcadeTreasury.sol"],
+  "setup_notes": "Standard Foundry project."
+}

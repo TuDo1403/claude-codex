@@ -1,0 +1,9 @@
+{
+  "id": "bench-001",
+  "name": "Vault Reentrancy",
+  "repo_url": "https://github.com/code-423n4/2023-01-ondo",
+  "commit": "main",
+  "build_command": "forge build",
+  "scope_files": ["src/CashManager.sol", "src/CashKYCSender.sol"],
+  "setup_notes": "Requires forge. No external dependencies."
+}

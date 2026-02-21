@@ -1,0 +1,34 @@
+{
+  "id": "bench-001",
+  "source": "code4rena",
+  "audit_url": "https://code4rena.com/reports/2023-01-ondo",
+  "findings": [
+    {
+      "id": "GT-1",
+      "title": "Cash manager allows reentrancy on requestRedemption",
+      "severity": "HIGH",
+      "file": "src/CashManager.sol",
+      "line": 198,
+      "mechanism": "reentrancy",
+      "description": "requestRedemption makes external call before updating state"
+    },
+    {
+      "id": "GT-2",
+      "title": "Missing access control on setPendingRedemptionBalance",
+      "severity": "HIGH",
+      "file": "src/CashManager.sol",
+      "line": 336,
+      "mechanism": "access-control",
+      "description": "Any user can set pending redemption balance for any account"
+    },
+    {
+      "id": "GT-3",
+      "title": "Mint limit can be bypassed via epoch manipulation",
+      "severity": "MEDIUM",
+      "file": "src/CashManager.sol",
+      "line": 169,
+      "mechanism": "logic-error",
+      "description": "Epoch can be advanced by anyone allowing mint limit bypass"
+    }
+  ]
+}

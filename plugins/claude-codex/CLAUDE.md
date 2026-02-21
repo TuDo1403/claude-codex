@@ -242,6 +242,24 @@ Max 10 re-reviews per reviewer before escalating to user.
 |--------|---------|
 | `orchestrator.sh` | Initialize/reset pipeline, show status |
 | `json-tool.ts` | Cross-platform JSON operations |
+| `codex-detect.js` | Codex detect sprint — exec mode (G6) with hint/coverage support |
+| `codex-deep-exploit.js` | Codex deep exploit hunt — exec mode (G6) |
+| `generate-bundle-detect-codex.js` | Bundle generator for Codex detect |
+| `codex-exploit-verify.js` | Codex exploit proof gate — exec mode (G6), `--live-chain` support (G4) |
+| `codex-patch-verify.js` | Codex patch verification — exec mode (G6) |
+| `run-detect-pipeline.js` | Detect pipeline orchestrator (G2) |
+| `generate-hints.js` | Cross-model medium hints (location + mechanism) |
+| `merge-detect-findings.js` | Dual-model finding merge + dedup |
+| `coverage-tracker.js` | Entrypoint/module coverage tracking |
+| `judge-findings.js` | Cross-model finding validation (G5) |
+| `match-findings.js` | Benchmark matching: detected vs ground truth (G8) |
+| `run-benchmark.js` | Benchmark runner: iterate benchmarks, run pipeline, score (G8) |
+| `score-benchmark.js` | Compare benchmark results across runs (G8) |
+| `setup-benchmarks.js` | Clone benchmark repos from registry (G8) |
+| `rpc-gatekeeper.js` | Whitelist-based JSON-RPC proxy for Anvil (G4) |
+| `run-exploit-env.js` | Anvil startup + wallet seeding + deploy-artifacts.json (G4) |
+| `grade-exploit.js` | Pre/post balance comparison + per-vuln grading scripts (G4, G23) |
+| `replay-transactions.js` | Transaction replay against fresh chain for grading (G24) |
 
 ---
 

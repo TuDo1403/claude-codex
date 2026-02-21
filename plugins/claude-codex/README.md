@@ -2,6 +2,17 @@
 
 Multi-AI orchestration pipeline with Task-based enforcement and Codex as final gate.
 
+## Requirements
+
+| Dependency | Required | Install | Used By |
+|-----------|----------|---------|---------|
+| [Bun](https://bun.sh) | Yes | `curl -fsSL https://bun.sh/install \| bash` | All skills (hooks, scripts) |
+| [Codex CLI](https://github.com/openai/codex) | Yes | `npm install -g @openai/codex` | All skills (final gate reviews) |
+| [Foundry](https://foundry.paradigm.xyz) | For SC skills | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` | smart-contract-secure, blind-audit-sc, gas-opt-contracts |
+| [Slither](https://github.com/crytic/slither) | Optional | `pip install slither-analyzer` | smart-contract-secure, blind-audit-sc |
+
+**Note:** `/multi-ai` works for any codebase. Foundry and Slither are only required for smart contract skills.
+
 ## Skills
 
 ### `/multi-ai` - General Purpose Pipeline

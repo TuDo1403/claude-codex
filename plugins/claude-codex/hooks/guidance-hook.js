@@ -233,6 +233,32 @@ function determinePhase(progress) {
 }
 
 /**
+ * Load audit scope from .claude-codex.json config.
+ * Returns scope string or null if not configured.
+ */
+function loadAuditScope() {
+  try {
+    const configPath = path.join(PROJECT_DIR, '.claude-codex.json');
+    if (!fs.existsSync(configPath)) return null;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config?.audit_scope || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SC pipeline phases where audit scope guidance applies
+ */
+const SC_PIPELINE_PHASES = [
+  'plan_review_sonnet', 'plan_review_opus', 'plan_review_codex',
+  'code_review_sonnet', 'code_review_opus', 'code_review_codex',
+  'fix_plan_sonnet', 'fix_plan_opus', 'fix_plan_codex',
+  'fix_code_sonnet', 'fix_code_opus', 'fix_code_codex',
+  'implementation'
+];
+
+/**
  * Compute guidance message based on current progress
  */
 function computeGuidance() {
@@ -255,6 +281,19 @@ function computeGuidance() {
     lines.push('');
     lines.push(`**Reminder**: ${acCount} acceptance criteria must be verified in all reviews.`);
     lines.push('Reviews MUST include acceptance_criteria_verification (code) or requirements_coverage (plan).');
+  }
+
+  // Inject audit scope guidance for SC pipeline phases
+  const auditScope = loadAuditScope();
+  if (auditScope && SC_PIPELINE_PHASES.includes(phase)) {
+    lines.push('');
+    if (auditScope === 'loss-of-funds-only') {
+      lines.push('**Audit Scope**: Loss-of-funds only. Focus on vulnerabilities that can cause direct fund loss.');
+    } else if (auditScope === 'high-and-above') {
+      lines.push('**Audit Scope**: High severity and above. Focus on HIGH and CRITICAL findings.');
+    } else {
+      lines.push('**Audit Scope**: All severities. Report all findings including LOW and INFO.');
+    }
   }
 
   return {
