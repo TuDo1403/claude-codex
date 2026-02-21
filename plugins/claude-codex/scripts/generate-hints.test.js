@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
-import { classifyMechanism, extractHints, extractLowHints, extractMediumHints, extractHighHints } from './generate-hints.js';
+import { classifyMechanism, extractHints, extractLowHints, extractMediumHints, extractHighHints, parseSlitherToFindings, parseSemgrepToFindings } from './generate-hints.js';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { join } from 'path';
 
 // ================== classifyMechanism ==================
 
@@ -223,5 +225,117 @@ describe('extractHighHints', () => {
     expect(hints[0].title).toBe('Untitled');
     expect(hints[0].description).toBe('No description');
     expect(hints[0].exploit_scenario).toBeNull();
+  });
+});
+
+// ================== parseSlitherToFindings ==================
+
+const TMP = join(import.meta.dir, '.test-tmp-hints-static');
+
+function setup() {
+  try { rmSync(TMP, { recursive: true }); } catch {}
+  mkdirSync(TMP, { recursive: true });
+}
+
+function cleanup() {
+  try { rmSync(TMP, { recursive: true }); } catch {}
+}
+
+describe('parseSlitherToFindings', () => {
+  it('returns empty array for missing file', () => {
+    expect(parseSlitherToFindings('/nonexistent.json')).toEqual([]);
+  });
+
+  it('parses HIGH/MEDIUM slither detectors into normalized findings', () => {
+    setup();
+    const slitherJson = {
+      results: {
+        detectors: [
+          {
+            check: 'reentrancy-eth',
+            impact: 'High',
+            confidence: 'Medium',
+            description: 'Reentrancy in Vault.withdraw()',
+            elements: [{ source_mapping: { filename_relative: 'src/Vault.sol', lines: [42, 43] } }]
+          },
+          {
+            check: 'naming-convention',
+            impact: 'Informational',
+            confidence: 'High',
+            description: 'Naming issue',
+            elements: [{ source_mapping: { filename_relative: 'src/Token.sol', lines: [10] } }]
+          }
+        ]
+      }
+    };
+    const p = join(TMP, 'slither.json');
+    writeFileSync(p, JSON.stringify(slitherJson));
+    const findings = parseSlitherToFindings(p);
+    // Only HIGH/MEDIUM are returned
+    expect(findings).toHaveLength(1);
+    expect(findings[0].id).toBe('SL-1');
+    expect(findings[0].severity).toBe('HIGH');
+    expect(findings[0].file).toBe('src/Vault.sol');
+    expect(findings[0].line).toBe(42);
+    expect(findings[0].source).toBe('slither');
+    cleanup();
+  });
+
+  it('classifies mechanism correctly from slither findings', () => {
+    setup();
+    const slitherJson = {
+      results: {
+        detectors: [{
+          check: 'reentrancy-eth',
+          impact: 'High',
+          confidence: 'High',
+          description: 'Reentrancy in withdraw',
+          elements: [{ source_mapping: { filename_relative: 'src/Vault.sol', lines: [42] } }]
+        }]
+      }
+    };
+    const p = join(TMP, 'slither2.json');
+    writeFileSync(p, JSON.stringify(slitherJson));
+    const findings = parseSlitherToFindings(p);
+    // These should work with classifyMechanism
+    const mechanism = classifyMechanism(findings[0]);
+    expect(mechanism).toBe('reentrancy');
+    cleanup();
+  });
+});
+
+describe('parseSemgrepToFindings', () => {
+  it('returns empty array for missing file', () => {
+    expect(parseSemgrepToFindings('/nonexistent.json')).toEqual([]);
+  });
+
+  it('parses ERROR/WARNING semgrep results into normalized findings', () => {
+    setup();
+    const semgrepJson = {
+      results: [
+        {
+          check_id: 'sol.reentrancy',
+          path: 'src/Vault.sol',
+          start: { line: 42 },
+          extra: { severity: 'ERROR', message: 'Possible reentrancy' }
+        },
+        {
+          check_id: 'sol.naming',
+          path: 'src/Token.sol',
+          start: { line: 10 },
+          extra: { severity: 'INFO', message: 'Naming issue' }
+        }
+      ]
+    };
+    const p = join(TMP, 'semgrep.json');
+    writeFileSync(p, JSON.stringify(semgrepJson));
+    const findings = parseSemgrepToFindings(p);
+    // Only ERROR/WARNING are returned
+    expect(findings).toHaveLength(1);
+    expect(findings[0].id).toBe('SG-1');
+    expect(findings[0].severity).toBe('HIGH'); // ERROR maps to HIGH
+    expect(findings[0].file).toBe('src/Vault.sol');
+    expect(findings[0].source).toBe('semgrep');
+    cleanup();
   });
 });

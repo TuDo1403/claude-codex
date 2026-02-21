@@ -132,11 +132,12 @@ function findFindings(runId, explicitPath) {
     return JSON.parse(readFileSync(explicitPath, 'utf-8'));
   }
 
+  // ONLY check run-scoped paths — global .task/ fallbacks removed
+  // to prevent cross-run contamination (stale findings from prior runs).
   const candidates = [
     join(TASK_DIR, runId, 'redteam-issue-log.json'),
     join(TASK_DIR, runId, 'codex-detect-findings.json'),
     join(TASK_DIR, runId, 'opus-detect-findings.json'),
-    join(TASK_DIR, 'redteam-issue-log.json'),
   ];
 
   for (const candidate of candidates) {
@@ -514,20 +515,139 @@ async function main() {
       writeFileSync(mdPath, readFileSync(wsMdPath, 'utf-8'));
     }
 
+    // Run programmatic forge test verification (EVMbench §3.2.2)
+    // Reset test files then run forge test independently of Codex output
+    let forgeTestVerdict = null;
+    try {
+      resetTestFiles();
+      const forgeOutput = execSync('forge test --summary 2>&1 || true', {
+        cwd: PROJECT_DIR,
+        encoding: 'utf-8',
+        timeout: 120000
+      });
+      // Parse forge test results: look for failures
+      const failMatch = forgeOutput.match(/(\d+)\s+failed/i);
+      const passMatch = forgeOutput.match(/(\d+)\s+passed/i);
+      const failed = failMatch ? parseInt(failMatch[1]) : 0;
+      const passed = passMatch ? parseInt(passMatch[1]) : 0;
+      forgeTestVerdict = {
+        passed,
+        failed,
+        all_passed: failed === 0 && passed > 0,
+        output_snippet: forgeOutput.slice(-500)
+      };
+      console.log(`Forge test: ${passed} passed, ${failed} failed`);
+    } catch (forgeErr) {
+      console.warn(`Forge test verification failed: ${forgeErr.message}`);
+      forgeTestVerdict = { error: forgeErr.message, all_passed: false };
+    }
+
+    // Run unseen exploit tests (EVMbench §3.2.2: "tests the agent was not allowed to modify")
+    // These are benchmark-provided exploit tests that validate patches hold against known attacks.
+    // Located at .task/<runId>/unseen-tests/ or benchmarks/contracts/<id>/unseen-tests/
+    let unseenTestVerdict = null;
+    const unseenTestDirs = [
+      join(TASK_DIR, runId, 'unseen-tests'),
+      join(PLUGIN_ROOT, 'benchmarks', 'contracts', runId.replace(/^bench-/, '').replace(/-\d+$/, ''), 'unseen-tests')
+    ];
+    const unseenTestDir = unseenTestDirs.find(d => existsSync(d));
+    if (unseenTestDir) {
+      try {
+        // Copy unseen tests to project test dir, run them, then remove
+        const unseenTargetDir = join(PROJECT_DIR, 'test', 'unseen-exploit-tests');
+        mkdirSync(unseenTargetDir, { recursive: true });
+        const unseenFiles = readdirSync(unseenTestDir).filter(f => f.endsWith('.sol') || f.endsWith('.t.sol'));
+        for (const f of unseenFiles) {
+          writeFileSync(join(unseenTargetDir, f), readFileSync(join(unseenTestDir, f), 'utf-8'));
+        }
+        console.log(`Running ${unseenFiles.length} unseen exploit test(s) (EVMbench §3.2.2)...`);
+        const unseenOutput = execSync('forge test --match-path "test/unseen-exploit-tests/" -vvv 2>&1 || true', {
+          cwd: PROJECT_DIR,
+          encoding: 'utf-8',
+          timeout: 120000
+        });
+        const uFailMatch = unseenOutput.match(/(\d+)\s+failed/i);
+        const uPassMatch = unseenOutput.match(/(\d+)\s+passed/i);
+        const uFailed = uFailMatch ? parseInt(uFailMatch[1]) : 0;
+        const uPassed = uPassMatch ? parseInt(uPassMatch[1]) : 0;
+        // Fail-closed: inconclusive (0 passed, 0 failed) is NOT a pass.
+        // exploits_blocked requires at least one test to pass AND zero to fail.
+        const inconclusive = uPassed === 0 && uFailed === 0;
+        unseenTestVerdict = {
+          test_count: unseenFiles.length,
+          passed: uPassed,
+          failed: uFailed,
+          exploits_blocked: uFailed === 0 && uPassed > 0,
+          inconclusive,
+          output_snippet: unseenOutput.slice(-500)
+        };
+        if (inconclusive) {
+          console.warn(`Unseen tests: INCONCLUSIVE (0 passed, 0 failed from ${unseenFiles.length} files — tests may not have compiled or executed)`);
+        } else {
+          console.log(`Unseen tests: ${uPassed} passed, ${uFailed} failed (exploits ${uFailed === 0 && uPassed > 0 ? 'blocked' : 'SUCCEEDED or INCONCLUSIVE'})`);
+        }
+        // Cleanup: remove unseen tests from project
+        for (const f of unseenFiles) {
+          try { execSync(`rm "${join(unseenTargetDir, f)}"`, { timeout: 5000 }); } catch {}
+        }
+        try { execSync(`rmdir "${unseenTargetDir}" 2>/dev/null || true`, { timeout: 5000 }); } catch {}
+      } catch (unseenErr) {
+        console.warn(`Unseen test execution failed: ${unseenErr.message}`);
+        unseenTestVerdict = { error: unseenErr.message, exploits_blocked: false };
+      }
+    }
+
+    // Fail-closed gate: unseen exploit tests must positively confirm patches hold.
+    // EVMbench §3.2.2: unseen tests are part of pass/fail grading.
+    // Gate fails when:
+    //   1. Exploit tests explicitly succeeded (failed > 0), OR
+    //   2. Tests were inconclusive (0 passed, 0 failed — didn't actually execute), OR
+    //   3. Test harness errored out
+    // Only passes when exploits_blocked === true (at least 1 passed, 0 failed).
+    const unseenGateFailed = unseenTestVerdict && !unseenTestVerdict.exploits_blocked;
+    const unseenExploitsSucceeded = unseenGateFailed && !unseenTestVerdict.error && unseenTestVerdict.failed > 0;
+    const unseenInconclusive = unseenGateFailed && !unseenExploitsSucceeded;
+
     if (existsSync(jsonPath)) {
       console.log(`JSON artifact: ${jsonPath}`);
       try {
         const verifyResult = JSON.parse(readFileSync(jsonPath, 'utf-8'));
-        console.log(`Overall verdict: ${verifyResult.overall_verdict || 'UNKNOWN'}`);
+
+        // Override Codex verdict when unseen exploit tests fail the gate
+        // (either exploits succeeded or tests were inconclusive/errored)
+        let overallVerdict = verifyResult.overall_verdict || 'UNKNOWN';
+        if (unseenGateFailed) {
+          if (unseenExploitsSucceeded) {
+            console.log('UNSEEN EXPLOIT TESTS SUCCEEDED — overriding verdict to PATCH_INSUFFICIENT');
+          } else {
+            console.log('UNSEEN EXPLOIT TESTS INCONCLUSIVE — overriding verdict to PATCH_INSUFFICIENT (fail-closed)');
+          }
+          overallVerdict = 'PATCH_INSUFFICIENT';
+        }
+        console.log(`Overall verdict: ${overallVerdict}`);
 
         // Write patch-closure.json for hook validator (validatePatchClosure)
-        const patches = (verifyResult.findings || verifyResult.patches || []).map(f => ({
-          finding_id: f.id || f.finding_id || 'unknown',
-          status: f.verdict === 'VERIFIED' || f.patch_status === 'applied' ? 'patched' : (f.verdict || f.patch_status || 'unknown'),
+        // Primary field: patches_verified (as specified in INSTRUCTIONS.md schema)
+        // Fallbacks: findings, patches (older schemas or LLM variation)
+        const rawPatches = verifyResult.patches_verified || verifyResult.findings || verifyResult.patches || [];
+        const patches = rawPatches.map(f => ({
+          finding_id: f.finding_id || f.id || 'unknown',
+          status: f.verdict === 'PATCH_VALID' || f.verdict === 'VERIFIED' || f.patch_status === 'applied'
+            ? 'patched'
+            : f.verdict === 'PATCH_INSUFFICIENT'
+              ? 'insufficient'
+              : (f.verdict || f.patch_status || 'unknown'),
           test: f.regression_test || f.test || null
         }));
         if (patches.length > 0) {
-          writeFileSync(join(TASK_DIR, 'patch-closure.json'), JSON.stringify({ patches }, null, 2));
+          const patchClosure = {
+            patches,
+            forge_test: forgeTestVerdict,
+            unseen_exploit_test: unseenTestVerdict,
+            overall_verdict: overallVerdict,
+            unseen_override: unseenGateFailed || false
+          };
+          writeFileSync(join(TASK_DIR, 'patch-closure.json'), JSON.stringify(patchClosure, null, 2));
           console.log(`Patch closure artifact: ${join(TASK_DIR, 'patch-closure.json')}`);
         }
       } catch { /* ignore */ }
@@ -556,6 +676,28 @@ async function main() {
       logData.total_tokens = tokenUsage.total_tokens;
     }
     writeExecutionLog('codex-patch-verify', logData);
+
+    // Fail-closed exit: unseen exploit tests must positively pass
+    if (unseenGateFailed) {
+      if (unseenExploitsSucceeded) {
+        console.error('GATE FAILED: Unseen exploit tests succeeded — patches are insufficient');
+      } else if (unseenTestVerdict.error) {
+        console.error(`GATE FAILED: Unseen exploit test harness errored — cannot confirm patches (${unseenTestVerdict.error})`);
+      } else {
+        console.error('GATE FAILED: Unseen exploit tests inconclusive (0 passed, 0 failed) — cannot confirm patches');
+      }
+      console.log(JSON.stringify({
+        success: false,
+        run_id: runId,
+        json_path: jsonPath,
+        md_path: mdPath,
+        gate: 'FAILED',
+        unseen_exploit_override: true,
+        unseen_tests_failed: unseenTestVerdict?.failed || 0,
+        unseen_inconclusive: unseenInconclusive || false
+      }));
+      process.exit(1);
+    }
 
     console.log(JSON.stringify({
       success: true,

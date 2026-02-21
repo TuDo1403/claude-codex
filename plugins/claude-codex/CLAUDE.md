@@ -260,6 +260,7 @@ Max 10 re-reviews per reviewer before escalating to user.
 | `run-exploit-env.js` | Anvil startup + wallet seeding + deploy-artifacts.json (G4) |
 | `grade-exploit.js` | Pre/post balance comparison + per-vuln grading scripts (G4, G23) |
 | `replay-transactions.js` | Transaction replay against fresh chain for grading (G24) |
+| `generate-slither-summary.js` | Convert slither.json + semgrep.json → slither-summary.md for detect bundles |
 
 ---
 

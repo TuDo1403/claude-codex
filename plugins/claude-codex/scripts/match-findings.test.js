@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
-  matchFindings, classifyMechanism, normSeverity, scoreResults,
+  matchFindings, matchFindingsWithJudge, classifyMechanism, normSeverity, scoreResults,
   isExactMatch, isBroadMatch, normFile
 } from './match-findings.js';
 
@@ -352,5 +352,140 @@ describe('scoreResults', () => {
     expect(typeof scores.true_positives).toBe('number');
     expect(typeof scores.false_positives).toBe('number');
     expect(typeof scores.false_negatives).toBe('number');
+  });
+
+  it('includes semantic_matches count', () => {
+    const results = [
+      { matched: true, match_tier: 'exact' },
+      { matched: true, match_tier: 'semantic' },
+      { matched: false, match_tier: 'none' }
+    ];
+    const scores = scoreResults(results, 3);
+    expect(scores.semantic_matches).toBe(1);
+    expect(scores.exact_matches).toBe(1);
+    expect(scores.true_positives).toBe(2);
+  });
+});
+
+// ================== one-to-one enforcement ==================
+
+describe('matchFindings one-to-one enforcement', () => {
+  it('prevents one detected finding from matching multiple GT rows', () => {
+    // Two GT rows in same file+mechanism, but only one detected finding
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 42, mechanism: 'reentrancy', title: 'Reentrancy A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/Vault.sol', line: 100, mechanism: 'reentrancy', title: 'Reentrancy B', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' }
+    ];
+    const results = matchFindings(det, gt);
+    const matchedCount = results.filter(r => r.matched).length;
+    // Only one GT should match — not both
+    expect(matchedCount).toBe(1);
+    expect(results[0].matched).toBe(true);
+    expect(results[0].match_tier).toBe('exact');
+    expect(results[0].detected_id).toBe('D-1');
+    // Second GT should NOT match (consumed)
+    expect(results[1].matched).toBe(false);
+  });
+
+  it('precision never exceeds 100% with one-to-one matching', () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/A.sol', line: 10, mechanism: 'reentrancy', title: 'A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/A.sol', line: 20, mechanism: 'reentrancy', title: 'B', severity: 'HIGH' },
+      { id: 'GT-3', file: 'src/A.sol', line: 30, mechanism: 'reentrancy', title: 'C', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/A.sol', line: 11, title: 'Reentrancy in A' }
+    ];
+    const results = matchFindings(det, gt);
+    const scores = scoreResults(results, det.length);
+    expect(scores.precision).toBeLessThanOrEqual(1.0);
+    expect(scores.true_positives).toBe(1);
+    expect(scores.false_positives).toBe(0);
+  });
+
+  it('exact matches consume findings before broad pass', () => {
+    // D-1 exact-matches GT-2. D-1 should NOT also broad-match GT-1.
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 200, mechanism: 'reentrancy', title: 'Reentrancy A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/Vault.sol', line: 43, mechanism: 'reentrancy', title: 'Reentrancy B', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' }
+    ];
+    const results = matchFindings(det, gt);
+    // GT-2 should get exact match
+    expect(results[1].matched).toBe(true);
+    expect(results[1].match_tier).toBe('exact');
+    // GT-1 should NOT get broad match (D-1 already consumed)
+    expect(results[0].matched).toBe(false);
+  });
+});
+
+// ================== matchFindingsWithJudge ==================
+
+describe('matchFindingsWithJudge', () => {
+  it('returns same results as matchFindings when no judge provided', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 42, mechanism: 'reentrancy', title: 'A', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' }
+    ];
+    const results = await matchFindingsWithJudge(det, gt);
+    expect(results[0].matched).toBe(true);
+    expect(results[0].match_tier).toBe('exact');
+  });
+
+  it('uses semantic judge for unmatched findings', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/Vault.sol', line: 42, mechanism: 'reentrancy', title: 'Reentrancy A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/Oracle.sol', line: 100, mechanism: 'oracle-manipulation', title: 'Oracle issue', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/Vault.sol', line: 43, title: 'Reentrancy found' },
+      { id: 'D-2', file: 'src/PriceFeed.sol', line: 55, title: 'Price manipulation via TWAP' }
+    ];
+    // Mock judge: always says match for D-2 vs GT-2
+    const mockJudge = async (detected, groundTruth) => {
+      if (detected.id === 'D-2' && groundTruth.id === 'GT-2') {
+        return { match: true, reasoning: 'Same oracle manipulation vulnerability' };
+      }
+      return { match: false, reasoning: 'Different flaws' };
+    };
+
+    const results = await matchFindingsWithJudge(det, gt, { semanticJudge: mockJudge });
+    expect(results[0].matched).toBe(true);
+    expect(results[0].match_tier).toBe('exact');
+    expect(results[1].matched).toBe(true);
+    expect(results[1].match_tier).toBe('semantic');
+    expect(results[1].judge_reasoning).toBe('Same oracle manipulation vulnerability');
+  });
+
+  it('respects one-to-one across semantic tier', async () => {
+    const gt = [
+      { id: 'GT-1', file: 'src/A.sol', line: 10, mechanism: 'other', title: 'Bug A', severity: 'HIGH' },
+      { id: 'GT-2', file: 'src/B.sol', line: 20, mechanism: 'other', title: 'Bug B', severity: 'HIGH' }
+    ];
+    const det = [
+      { id: 'D-1', file: 'src/C.sol', line: 30, title: 'Generic issue' }
+    ];
+    // Judge says D-1 matches both GT-1 and GT-2
+    const matchAllJudge = async () => ({ match: true, reasoning: 'Matches' });
+    const results = await matchFindingsWithJudge(det, gt, { semanticJudge: matchAllJudge });
+    const matched = results.filter(r => r.matched);
+    // Should only match ONE (one-to-one)
+    expect(matched.length).toBe(1);
+    expect(matched[0].match_tier).toBe('semantic');
+  });
+
+  it('handles judge errors gracefully', async () => {
+    const gt = [{ id: 'GT-1', file: 'src/A.sol', line: 10, mechanism: 'other', title: 'Bug', severity: 'HIGH' }];
+    const det = [{ id: 'D-1', file: 'src/B.sol', line: 20, title: 'Thing' }];
+    const errorJudge = async () => { throw new Error('API down'); };
+    const results = await matchFindingsWithJudge(det, gt, { semanticJudge: errorJudge });
+    expect(results[0].matched).toBe(false);
   });
 });

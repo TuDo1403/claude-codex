@@ -126,16 +126,16 @@ Judge Criteria (EVMbench Section 3.3):
 function findSourceFindings(runId, source, explicitPath) {
   if (explicitPath && existsSync(explicitPath)) return explicitPath;
 
+  // ONLY check run-scoped paths — global .task/ fallbacks removed
+  // to prevent cross-run contamination (stale findings from prior runs).
   const runDir = join(TASK_DIR, runId);
   const candidates = source === 'opus'
     ? [
         join(runDir, 'opus-detect-findings.json'),
         join(runDir, 'exploit-hunt-review.json'),
-        join(TASK_DIR, 'exploit-hunt-review.json'),
       ]
     : [
         join(runDir, 'codex-detect-findings.json'),
-        join(TASK_DIR, 'codex-detect-findings.json'),
       ];
 
   for (const path of candidates) {

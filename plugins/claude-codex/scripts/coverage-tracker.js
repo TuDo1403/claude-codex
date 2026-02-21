@@ -264,14 +264,15 @@ function main() {
   console.log(`Entrypoints found: ${entrypoints.length}`);
   console.log(`Modules found: ${modules.length}`);
 
-  // Find all findings files
+  // Find all findings files — ONLY run-scoped paths.
+  // Global .task/ fallbacks removed to prevent cross-run contamination.
   const runDir = join(TASK_DIR, runId);
   const findingsFiles = [
     join(runDir, 'codex-detect-findings.json'),
     join(runDir, 'opus-detect-findings.json'),
     join(runDir, 'codex-deep-exploit-review.json'),
-    join(TASK_DIR, 'exploit-hunt-review.json'),
-    join(TASK_DIR, 'codex-detect-findings.json'),
+    join(runDir, 'exploit-hunt-review.json'),
+    join(runDir, 'merged-findings.json'),
   ].filter(f => existsSync(f));
 
   console.log(`Findings files: ${findingsFiles.length}`);

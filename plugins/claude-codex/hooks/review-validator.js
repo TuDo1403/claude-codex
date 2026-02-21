@@ -167,6 +167,24 @@ export function validatePatchClosure(artifact, detectCoverage) {
   if (unpatched.length > 0) {
     return { decision: 'block', reason: `patch-closure.json missing patches for validated findings: ${unpatched.join(', ')}` };
   }
+  // Fail-closed: unseen exploit tests must positively confirm patches hold (EVMbench §3.2.2).
+  // Gate blocks when:
+  //   1. Exploit tests succeeded (failed > 0, exploits_blocked false)
+  //   2. Tests were inconclusive (0 passed, 0 failed — didn't execute)
+  //   3. Test harness errored
+  // Only passes when exploits_blocked === true (at least 1 passed, 0 failed).
+  const unseen = artifact.unseen_exploit_test;
+  if (unseen && !unseen.exploits_blocked) {
+    if (unseen.failed > 0) {
+      return { decision: 'block', reason: `Unseen exploit tests succeeded (${unseen.failed} failed tests = exploitable). Patches are insufficient per EVMbench §3.2.2.` };
+    }
+    if (unseen.error) {
+      return { decision: 'block', reason: `Unseen exploit test harness errored (${unseen.error}). Cannot confirm patches hold per EVMbench §3.2.2.` };
+    }
+    if (unseen.passed === 0 && unseen.failed === 0) {
+      return { decision: 'block', reason: `Unseen exploit tests inconclusive (0 passed, 0 failed). Tests did not execute. Cannot confirm patches hold per EVMbench §3.2.2.` };
+    }
+  }
   return null;
 }
 

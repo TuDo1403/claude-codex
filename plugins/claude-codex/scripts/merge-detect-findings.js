@@ -116,15 +116,15 @@ function findFindingsFile(runId, model, explicitPath) {
   if (explicitPath && existsSync(explicitPath)) return explicitPath;
 
   const runDir = join(TASK_DIR, runId);
+  // ONLY check run-scoped paths — global .task/ fallbacks removed to prevent
+  // cross-run contamination (stale findings from prior runs).
   const candidates = model === 'opus'
     ? [
         join(runDir, 'opus-detect-findings.json'),
         join(runDir, 'exploit-hunt-review.json'),
-        join(TASK_DIR, 'exploit-hunt-review.json'),
       ]
     : [
         join(runDir, 'codex-detect-findings.json'),
-        join(TASK_DIR, 'codex-detect-findings.json'),
       ];
 
   for (const path of candidates) {

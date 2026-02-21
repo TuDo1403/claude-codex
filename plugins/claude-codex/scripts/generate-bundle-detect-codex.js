@@ -186,15 +186,24 @@ function main() {
   }
 
   // 5. Copy Slither summary (if available)
-  const slitherPath = join(TASK_DIR, runId, 'slither-summary.md');
-  const slitherAlt = join(PROJECT_DIR, 'reports', 'slither-summary.md');
-  if (copyFileIfExists(slitherPath, join(bundleDir, 'slither-summary.md'))) {
-    manifest.contents.slither_summary = true;
-    console.log('Slither summary: included (from .task)');
-  } else if (copyFileIfExists(slitherAlt, join(bundleDir, 'slither-summary.md'))) {
-    manifest.contents.slither_summary = true;
-    console.log('Slither summary: included (from reports)');
-  } else {
+  // Priority: .task/<runId>/slither-summary.md (from generate-slither-summary.js)
+  //         > reports/slither-summary.md (from generate-slither-summary.js)
+  //         > reports/slither.md (from security-auditor agent: slither --print human-summary)
+  const slitherCandidates = [
+    join(TASK_DIR, runId, 'slither-summary.md'),
+    join(PROJECT_DIR, 'reports', 'slither-summary.md'),
+    join(PROJECT_DIR, 'reports', 'slither.md'),
+  ];
+  let slitherCopied = false;
+  for (const candidate of slitherCandidates) {
+    if (copyFileIfExists(candidate, join(bundleDir, 'slither-summary.md'))) {
+      manifest.contents.slither_summary = true;
+      console.log(`Slither summary: included (from ${candidate})`);
+      slitherCopied = true;
+      break;
+    }
+  }
+  if (!slitherCopied) {
     manifest.contents.slither_summary = false;
     console.log('Slither summary: not available');
   }

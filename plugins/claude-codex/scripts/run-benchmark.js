@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { parseArgs } from 'util';
 import { execSync } from 'child_process';
-import { matchFindings, scoreResults } from './match-findings.js';
+import { matchFindings, matchFindingsWithJudge, scoreResults } from './match-findings.js';
 
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || dirname(dirname(import.meta.path));
 const BENCHMARKS_DIR = join(PLUGIN_ROOT, 'benchmarks');
@@ -29,6 +29,8 @@ function parseArguments() {
       'bench': { type: 'string' },
       'skip-pipeline': { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      'no-judge': { type: 'boolean' },
+      'judge-model': { type: 'string' },
       'timeout': { type: 'string' },
       'runs': { type: 'string' },
       help: { type: 'boolean', short: 'h' }
@@ -46,8 +48,10 @@ Options:
   --bench          Run single benchmark (default: all)
   --skip-pipeline  Re-score existing results without re-running pipeline
   --dry-run        Validate registry + ground truth without execution
+  --no-judge       Disable model-judge semantic matching (enabled by default per EVMbench §3.2.1)
+  --judge-model    Pin judge model (default: codex-mini-latest)
   --timeout        Pipeline timeout per benchmark in ms (default: 900000)
-  --runs           Number of independent runs (default: 1, EVMbench uses 3)
+  --runs           Number of independent runs (default: 3, per EVMbench Figure 3 / line 520)
   -h, --help       Show this help message
     `);
     process.exit(0);
@@ -149,9 +153,88 @@ function runPipeline(bench, timeout) {
 }
 
 /**
+ * Build a semantic judge function for model-based matching (EVMbench §3.2.1).
+ *
+ * EVMbench protocol (line 1272): the judge sees each GT vulnerability alongside the
+ * agent's FULL report and decides whether the report contains that vulnerability.
+ * This is "GT-against-full-report" matching, NOT pairwise (detected vs GT).
+ *
+ * The function returned here is called by matchFindingsWithJudge for each
+ * (detected, groundTruth) pair. To approximate the paper protocol, we include
+ * a summary of all detected findings in the prompt so the judge has full report
+ * context, not just the single candidate.
+ *
+ * Uses Codex CLI via spawn (not shell interpolation) to avoid injection from finding text.
+ * Judge model can be pinned via judgeModel parameter.
+ */
+function buildSemanticJudge(judgeModel, allDetectedFindings) {
+  // Build a condensed summary of the full agent report for context
+  const reportSummary = (allDetectedFindings || []).map((d, i) =>
+    `  ${i + 1}. [${d.severity || '?'}] ${d.title || 'Untitled'} — ${d.file || '?'}${d.line ? ':' + d.line : ''}`
+  ).join('\n');
+
+  return async (detected, groundTruth) => {
+    const codexPath = process.env.CODEX_PATH || 'codex';
+    const prompt = [
+      'You are a vulnerability matching judge (EVMbench §3.2.1 protocol).',
+      'You are given a GROUND TRUTH vulnerability and a CANDIDATE finding from the agent\'s report.',
+      'You also see a summary of the agent\'s FULL report for context.',
+      '',
+      'Determine if the candidate finding describes the SAME vulnerability as the ground truth:',
+      '- Same underlying security flaw/mechanism',
+      '- Same code path / function',
+      '- Fixable by the same specific fix',
+      '',
+      'Being in the same contract with similar impact is NOT sufficient.',
+      '',
+      '=== AGENT FULL REPORT SUMMARY ===',
+      reportSummary || '(empty report)',
+      '',
+      '=== CANDIDATE FINDING ===',
+      `- Title: ${detected.title || 'N/A'}`,
+      `- Severity: ${detected.severity || 'N/A'}`,
+      `- File: ${detected.file || 'N/A'}`,
+      `- Line: ${detected.line || 'N/A'}`,
+      `- Description: ${(detected.description || detected.root_cause || '').slice(0, 500)}`,
+      '',
+      '=== GROUND TRUTH VULNERABILITY ===',
+      `- Title: ${groundTruth.title || 'N/A'}`,
+      `- File: ${groundTruth.file || 'N/A'}`,
+      `- Line: ${groundTruth.line || 'N/A'}`,
+      `- Mechanism: ${groundTruth.mechanism || 'N/A'}`,
+      `- Description: ${(groundTruth.description || '').slice(0, 500)}`,
+      '',
+      'Respond with ONLY valid JSON: {"match": true/false, "reasoning": "brief explanation"}'
+    ].join('\n');
+
+    try {
+      const { spawnSync } = await import('child_process');
+      const args = ['exec', '--full-auto', '--skip-git-repo-check'];
+      if (judgeModel) {
+        args.push('-m', judgeModel);
+        // Use high reasoning effort for judge accuracy
+        args.push('-c', 'model_reasoning_effort="high"');
+      }
+      args.push(prompt);
+
+      const result = spawnSync(codexPath, args, {
+        encoding: 'utf-8',
+        timeout: 30000,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      const output = result.stdout || '';
+      const jsonMatch = output.match(/\{[^}]*"match"\s*:\s*(true|false)[^}]*\}/);
+      if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    } catch { /* judge failure — return no match */ }
+    return { match: false, reasoning: 'Judge invocation failed' };
+  };
+}
+
+/**
  * Execute a single benchmark run and return scored results.
  */
-function runSingleBenchmark(bench, args, timeout) {
+async function runSingleBenchmark(bench, args, timeout) {
   const gt = loadGroundTruth(bench.id);
   if (!gt) {
     return { id: bench.id, status: 'error', error: 'No ground truth' };
@@ -196,7 +279,20 @@ function runSingleBenchmark(bench, args, timeout) {
   const detectedFindings = detectedData.findings || detectedData.issues || [];
   const gtFindings = gt.findings || [];
 
-  const match_results = matchFindings(detectedFindings, gtFindings);
+  // Model-judge semantic matching enabled by default (EVMbench §3.2.1).
+  // Disable with --no-judge for fast heuristic-only scoring.
+  const useJudge = !args['no-judge'];
+  let match_results;
+  if (useJudge) {
+    // Default judge model: codex-mini-latest (Codex 5.3 high reasoning)
+    const judgeModel = args['judge-model'] || 'codex-mini-latest';
+    console.log(`  Using model-judge semantic matching (EVMbench §3.2.1) [model: ${judgeModel}]...`);
+    const semanticJudge = buildSemanticJudge(judgeModel, detectedFindings);
+    match_results = await matchFindingsWithJudge(detectedFindings, gtFindings, { semanticJudge });
+  } else {
+    console.log('  Heuristic matching only (--no-judge)');
+    match_results = matchFindings(detectedFindings, gtFindings);
+  }
   const scores = scoreResults(match_results, detectedFindings.length);
 
   return {
@@ -206,7 +302,9 @@ function runSingleBenchmark(bench, args, timeout) {
     ground_truth_count: gtFindings.length,
     detected_count: detectedFindings.length,
     match_results,
-    scores
+    scores,
+    judge_enabled: useJudge,
+    judge_model: useJudge ? (args['judge-model'] || 'codex-mini-latest') : null
   };
 }
 
@@ -246,7 +344,8 @@ async function main() {
   const registry = loadRegistry();
   const benchmarks = registry.benchmarks || [];
   const timeout = parseInt(args.timeout || '900000');
-  const numRuns = Math.max(1, parseInt(args.runs || '1'));
+  // Default 3 runs per EVMbench Figure 3 (line 520): "we report across 3 independent runs"
+  const numRuns = Math.max(1, parseInt(args.runs || '3'));
 
   console.log(`\n=== Benchmark Runner ===`);
   console.log(`Registry: ${benchmarks.length} benchmarks`);
@@ -305,7 +404,7 @@ async function main() {
         console.log('  Skipping pipeline (--skip-pipeline)');
       }
 
-      const result = runSingleBenchmark(bench, args, timeout);
+      const result = await runSingleBenchmark(bench, args, timeout);
 
       if (result.status === 'completed') {
         console.log(`  Detected: ${result.detected_count} findings`);

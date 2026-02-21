@@ -59,6 +59,7 @@ function parseArguments() {
       'max-passes': { type: 'string' },
       'skip-opus': { type: 'boolean' },
       'skip-codex': { type: 'boolean' },
+      'skip-static': { type: 'boolean' },
       'codex-timeout': { type: 'string' },
       'coverage-threshold': { type: 'string' },
       help: { type: 'boolean', short: 'h' }
@@ -78,11 +79,13 @@ Options:
   --max-passes          Maximum detect passes (default: 2)
   --skip-opus           Skip Opus detect (use existing findings only)
   --skip-codex          Skip Codex detect (use existing findings only)
+  --skip-static         Skip static analysis (slither/semgrep) pre-seed
   --codex-timeout       Timeout for Codex detect in ms (default: 900000)
   --coverage-threshold  Coverage threshold percentage (default: 90)
   -h, --help            Show this help message
 
 Phases:
+  0. Static analysis pre-seed (slither/semgrep → summary + hints)
   1. Blind detect (Codex automated, Opus manual/existing)
   2. Merge findings
   3. Coverage check
@@ -158,24 +161,25 @@ async function runCodexDetect(runId, timeout, extraArgs = []) {
 }
 
 /**
- * Check if Opus findings exist for this run
+ * Check if Opus findings exist for this run.
+ * ONLY checks run-scoped paths — global .task/ fallbacks removed to prevent
+ * cross-run contamination (stale findings from prior runs breaking benchmarks).
  */
 function hasOpusFindings(runId) {
   const candidates = [
     join(TASK_DIR, runId, 'opus-detect-findings.json'),
     join(TASK_DIR, runId, 'exploit-hunt-review.json'),
-    join(TASK_DIR, 'exploit-hunt-review.json')
   ];
   return candidates.some(p => existsSync(p));
 }
 
 /**
- * Check if Codex findings exist for this run
+ * Check if Codex findings exist for this run.
+ * ONLY checks run-scoped paths — no global fallbacks.
  */
 function hasCodexFindings(runId) {
   const candidates = [
     join(TASK_DIR, runId, 'codex-detect-findings.json'),
-    join(TASK_DIR, 'codex-detect-findings.json')
   ];
   return candidates.some(p => existsSync(p));
 }
@@ -202,6 +206,7 @@ async function main() {
   const maxPasses = parseInt(args['max-passes'] || '2');
   const skipOpus = args['skip-opus'] || false;
   const skipCodex = args['skip-codex'] || false;
+  const skipStatic = args['skip-static'] || false;
   const codexTimeout = parseInt(args['codex-timeout'] || '900000');
   const coverageThreshold = parseInt(args['coverage-threshold'] || '90');
   const config = loadConfig();
@@ -219,7 +224,61 @@ async function main() {
   console.log(`Coverage threshold: ${coverageThreshold}%`);
   console.log(`Skip Opus: ${skipOpus}`);
   console.log(`Skip Codex: ${skipCodex}`);
+  console.log(`Skip Static: ${skipStatic}`);
   console.log(`Codex timeout: ${codexTimeout}ms`);
+
+  // ============================================================
+  // PHASE 0: Static Analysis Pre-seed (slither/semgrep)
+  // ============================================================
+  let hasStaticHints = false;
+
+  if (!skipStatic) {
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`  PHASE 0: Static Analysis Pre-seed`);
+    console.log(`${'='.repeat(60)}`);
+
+    const REPORTS_DIR = join(PROJECT_DIR, 'reports');
+    const hasSlither = existsSync(join(REPORTS_DIR, 'slither.json'));
+    const hasSemgrep = existsSync(join(REPORTS_DIR, 'semgrep.json'));
+
+    if (hasSlither || hasSemgrep) {
+      // Generate slither-summary.md for detect bundles
+      const summaryResult = runScript(
+        join(SCRIPTS_DIR, 'generate-slither-summary.js'),
+        ['--run-id', runId],
+        { label: 'Generate Static Analysis Summary', timeout: 30000 }
+      );
+
+      if (summaryResult.success) {
+        console.log('Static analysis summary generated for detect bundles');
+      }
+
+      // Generate hints from static analysis → both models
+      const staticHintsResult = runScript(
+        join(SCRIPTS_DIR, 'generate-hints.js'),
+        ['--run-id', runId, '--source', 'static', '--target', 'codex', '--level', 'low'],
+        { label: 'Generate Static Hints (static → codex)', timeout: 30000 }
+      );
+
+      const staticHintsData = parseJsonResult(staticHintsResult.output);
+      if (staticHintsData?.hints_count > 0) {
+        hasStaticHints = true;
+        console.log(`Static analysis hints: ${staticHintsData.hints_count} for Codex`);
+      }
+
+      // Also generate static hints for Opus (for manual use)
+      runScript(
+        join(SCRIPTS_DIR, 'generate-hints.js'),
+        ['--run-id', runId, '--source', 'static', '--target', 'opus', '--level', 'low'],
+        { label: 'Generate Static Hints (static → opus)', timeout: 30000 }
+      );
+    } else {
+      console.log('No static analysis output found (reports/slither.json or reports/semgrep.json).');
+      console.log('To enable: run slither/semgrep first, or use security-auditor agent.');
+    }
+  } else {
+    console.log('\nStatic analysis pre-seed skipped (--skip-static)');
+  }
 
   // ============================================================
   // PHASE 1: Parallel Blind Detect
@@ -321,16 +380,22 @@ async function main() {
   let currentNeedsRedetect = needsRedetect;
 
   while (currentNeedsRedetect && pass < maxPasses) {
+    // Hint escalation strategy (EVMbench Table 8, line 1480):
+    // Detect and Patch modes support low + medium hints only.
+    // High hints are reserved for Exploit mode.
+    // All hinted re-detect passes use medium (location + mechanism).
+    const hintLevel = 'medium';
+
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`  PHASE 4: Hinted Re-detect (pass ${pass + 1}/${maxPasses})`);
+    console.log(`  PHASE 4: Hinted Re-detect (pass ${pass + 1}/${maxPasses}, hint level: ${hintLevel})`);
     console.log(`${'='.repeat(60)}`);
 
     // 4a. Generate hints: opus → codex
     if (haveOpus) {
       runScript(
         join(SCRIPTS_DIR, 'generate-hints.js'),
-        ['--run-id', runId, '--source', 'opus', '--target', 'codex'],
-        { label: 'Generate Hints (opus → codex)', timeout: 30000 }
+        ['--run-id', runId, '--source', 'opus', '--target', 'codex', '--level', hintLevel],
+        { label: `Generate Hints (opus → codex, ${hintLevel})`, timeout: 30000 }
       );
     }
 
@@ -338,8 +403,8 @@ async function main() {
     if (haveCodex) {
       runScript(
         join(SCRIPTS_DIR, 'generate-hints.js'),
-        ['--run-id', runId, '--source', 'codex', '--target', 'opus'],
-        { label: 'Generate Hints (codex → opus)', timeout: 30000 }
+        ['--run-id', runId, '--source', 'codex', '--target', 'opus', '--level', hintLevel],
+        { label: `Generate Hints (codex → opus, ${hintLevel})`, timeout: 30000 }
       );
       const opusHintsFile = join(runDir, 'hints-codex-to-opus.json');
       if (existsSync(opusHintsFile)) {

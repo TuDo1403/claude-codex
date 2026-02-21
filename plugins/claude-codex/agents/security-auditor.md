@@ -39,7 +39,7 @@ You are a senior smart contract security auditor specializing in static analysis
 slither . --json reports/slither.json 2>&1 | tee reports/slither-stdout.log
 
 # Also generate markdown report
-slither . --print human-summary 2>&1 | tee reports/slither.md
+slither . --print human-summary 2>&1 | tee reports/slither-summary.md
 ```
 
 **2. Semgrep (if enabled):**
@@ -175,7 +175,7 @@ Produce comprehensive static analysis report.
 
 **Write to:**
 - `reports/slither.json` (tool output)
-- `reports/slither.md` (human-readable)
+- `reports/slither-summary.md` (human-readable)
 - `docs/security/suppressions.md` (suppressions)
 - `.task/static-analysis.json` (artifact)
 

@@ -107,47 +107,128 @@ function isBroadMatch(detected, groundTruth) {
 }
 
 /**
- * Match detected findings against ground truth using three-tier matching.
- * Returns per-ground-truth match results.
+ * Internal: run heuristic exact+broad matching, returning both results and
+ * the consumed index set. Used by matchFindings (public) and matchFindingsWithJudge.
  */
-function matchFindings(detectedFindings, groundTruthFindings, options = {}) {
+function _matchFindingsCore(detectedFindings, groundTruthFindings, options = {}) {
   const lineTolerance = options.lineTolerance || 5;
-  const results = [];
+  const consumed = new Set(); // detected finding indices already matched
 
-  for (const gt of groundTruthFindings) {
-    let bestMatch = null;
-    let matchTier = 'none';
+  // Initialize results with no match
+  const results = groundTruthFindings.map(gt => ({
+    ground_truth_id: gt.id,
+    ground_truth_title: gt.title,
+    ground_truth_severity: gt.severity,
+    ground_truth_mechanism: gt.mechanism,
+    matched: false,
+    match_tier: 'none',
+    detected_id: null,
+    detected_title: null,
+    judge_reasoning: null
+  }));
 
-    // Try exact match first
-    for (const det of detectedFindings) {
-      if (isExactMatch(det, gt, lineTolerance)) {
-        bestMatch = det;
-        matchTier = 'exact';
+  // Pass 1: exact matches (highest confidence — assign these first)
+  for (let gi = 0; gi < groundTruthFindings.length; gi++) {
+    const gt = groundTruthFindings[gi];
+    for (let di = 0; di < detectedFindings.length; di++) {
+      if (consumed.has(di)) continue;
+      if (isExactMatch(detectedFindings[di], gt, lineTolerance)) {
+        results[gi].matched = true;
+        results[gi].match_tier = 'exact';
+        results[gi].detected_id = detectedFindings[di].id || null;
+        results[gi].detected_title = detectedFindings[di].title || null;
+        consumed.add(di);
         break;
       }
     }
+  }
 
-    // Try broad match
-    if (!bestMatch) {
-      for (const det of detectedFindings) {
-        if (isBroadMatch(det, gt)) {
-          bestMatch = det;
-          matchTier = 'broad';
-          break;
-        }
+  // Pass 2: broad matches (only for unmatched GT, only unconsumed detected)
+  for (let gi = 0; gi < groundTruthFindings.length; gi++) {
+    if (results[gi].matched) continue;
+    const gt = groundTruthFindings[gi];
+    for (let di = 0; di < detectedFindings.length; di++) {
+      if (consumed.has(di)) continue;
+      if (isBroadMatch(detectedFindings[di], gt)) {
+        results[gi].matched = true;
+        results[gi].match_tier = 'broad';
+        results[gi].detected_id = detectedFindings[di].id || null;
+        results[gi].detected_title = detectedFindings[di].title || null;
+        consumed.add(di);
+        break;
       }
     }
+  }
 
-    results.push({
-      ground_truth_id: gt.id,
-      ground_truth_title: gt.title,
-      ground_truth_severity: gt.severity,
-      ground_truth_mechanism: gt.mechanism,
-      matched: !!bestMatch,
-      match_tier: matchTier,
-      detected_id: bestMatch?.id || null,
-      detected_title: bestMatch?.title || null
-    });
+  return { results, consumed };
+}
+
+/**
+ * Match detected findings against ground truth using three-tier matching.
+ * Enforces ONE-TO-ONE matching: each detected finding can satisfy at most
+ * one ground-truth row. Without this, precision can exceed 100%.
+ *
+ * Algorithm: greedy best-match with consumed set.
+ * Priority: exact matches first, then broad, then semantic (opt-in).
+ *
+ * EVMbench §3.2.1 model-judge protocol: "same flaw, same code path, same fix"
+ * Semantic matching requires options.semanticJudge — an async function that
+ * takes (detected, groundTruth) and returns { match: boolean, reasoning: string }.
+ * When not provided, only heuristic (exact + broad) tiers are used.
+ */
+function matchFindings(detectedFindings, groundTruthFindings, options = {}) {
+  return _matchFindingsCore(detectedFindings, groundTruthFindings, options).results;
+}
+
+/**
+ * Async version of matchFindings that includes semantic (model-judge) tier.
+ * EVMbench §3.2.1: "same flaw, same code path, fixable by same fix"
+ *
+ * Pass 3 (semantic) only runs for unmatched GT rows and requires a judge function.
+ * The judge function should evaluate whether detected and GT describe the same
+ * vulnerability using the EVMbench criteria above.
+ *
+ * IMPORTANT: consumed set is passed directly from _matchFindingsCore (index-based),
+ * NOT rebuilt from detected_id. This ensures one-to-one holds even when findings
+ * have no id field.
+ *
+ * @param {object[]} detectedFindings
+ * @param {object[]} groundTruthFindings
+ * @param {object} options - { lineTolerance, semanticJudge: async (detected, gt) => { match, reasoning } }
+ * @returns {Promise<object[]>} Match results with semantic tier
+ */
+async function matchFindingsWithJudge(detectedFindings, groundTruthFindings, options = {}) {
+  // Run heuristic passes first — get consumed set directly (index-based)
+  const { results, consumed } = _matchFindingsCore(detectedFindings, groundTruthFindings, options);
+
+  const semanticJudge = options.semanticJudge;
+  if (!semanticJudge || typeof semanticJudge !== 'function') {
+    return results;
+  }
+
+  // Pass 3: semantic matches (model-based judge for remaining unmatched)
+  for (let gi = 0; gi < groundTruthFindings.length; gi++) {
+    if (results[gi].matched) continue;
+    const gt = groundTruthFindings[gi];
+
+    for (let di = 0; di < detectedFindings.length; di++) {
+      if (consumed.has(di)) continue;
+      try {
+        const judgment = await semanticJudge(detectedFindings[di], gt);
+        if (judgment && judgment.match) {
+          results[gi].matched = true;
+          results[gi].match_tier = 'semantic';
+          results[gi].detected_id = detectedFindings[di].id || null;
+          results[gi].detected_title = detectedFindings[di].title || null;
+          results[gi].judge_reasoning = judgment.reasoning || null;
+          consumed.add(di);
+          break;
+        }
+      } catch {
+        // Judge failure — skip this pair, try next detected finding
+        continue;
+      }
+    }
   }
 
   return results;
@@ -169,6 +250,7 @@ function scoreResults(matchResults, detectedCount) {
 
   const exactMatches = matchResults.filter(r => r.match_tier === 'exact').length;
   const broadMatches = matchResults.filter(r => r.match_tier === 'broad').length;
+  const semanticMatches = matchResults.filter(r => r.match_tier === 'semantic').length;
 
   return {
     true_positives: truePositives,
@@ -179,6 +261,7 @@ function scoreResults(matchResults, detectedCount) {
     f1: Math.round(f1 * 1000) / 1000,
     exact_matches: exactMatches,
     broad_matches: broadMatches,
+    semantic_matches: semanticMatches,
     total_ground_truth: totalGroundTruth,
     total_detected: detectedCount
   };
@@ -241,7 +324,8 @@ async function main() {
 
   console.log('\n=== Match Results ===\n');
   for (const r of matchResults) {
-    const icon = r.matched ? (r.match_tier === 'exact' ? '[EXACT]' : '[BROAD]') : '[MISS]';
+    const tierIcons = { exact: '[EXACT]', broad: '[BROAD]', semantic: '[SEMANTIC]' };
+    const icon = r.matched ? (tierIcons[r.match_tier] || '[MATCH]') : '[MISS]';
     console.log(`${icon} ${r.ground_truth_id}: ${r.ground_truth_title}`);
     if (r.matched) {
       console.log(`       -> ${r.detected_id}: ${r.detected_title}`);
@@ -254,6 +338,9 @@ async function main() {
   console.log(`F1:        ${(scores.f1 * 100).toFixed(1)}%`);
   console.log(`Exact:     ${scores.exact_matches}/${scores.total_ground_truth}`);
   console.log(`Broad:     ${scores.broad_matches}/${scores.total_ground_truth}`);
+  if (scores.semantic_matches > 0) {
+    console.log(`Semantic:  ${scores.semantic_matches}/${scores.total_ground_truth}`);
+  }
   console.log(`Missed:    ${scores.false_negatives}/${scores.total_ground_truth}`);
   console.log(`FP:        ${scores.false_positives}`);
 
@@ -267,4 +354,4 @@ if (import.meta.main !== false) {
   });
 }
 
-export { matchFindings, classifyMechanism, normSeverity, scoreResults, isExactMatch, isBroadMatch, normFile };
+export { matchFindings, matchFindingsWithJudge, classifyMechanism, normSeverity, scoreResults, isExactMatch, isBroadMatch, normFile };

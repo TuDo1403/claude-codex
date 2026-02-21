@@ -65,10 +65,15 @@ Generates hints from one model's findings for another model.
 
 Options:
   --run-id     Run ID for this pipeline execution
-  --source     Source model findings (opus|codex)
+  --source     Source model findings (opus|codex|static)
   --target     Target model to receive hints (codex|opus)
   --level      Hint level: low|medium|high (default: medium)
   -h, --help   Show this help message
+
+Sources:
+  opus:    Opus model findings
+  codex:   Codex model findings
+  static:  Slither/Semgrep static analysis findings (reports/slither.json, reports/semgrep.json)
 
 Hint Levels (EVMbench Table 8):
   low:    File locations only
@@ -171,20 +176,97 @@ function extractHints(findings, level) {
 }
 
 /**
- * Find findings from a source model
+ * Parse slither JSON into normalized findings array.
+ * Maps slither detectors to the same shape as model findings.
+ */
+function parseSlitherToFindings(slitherPath) {
+  if (!existsSync(slitherPath)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(slitherPath, 'utf-8'));
+    const detectors = raw.results?.detectors || raw.detectors || [];
+
+    return detectors
+      .filter(d => {
+        const impact = (d.impact || '').toUpperCase();
+        return impact === 'HIGH' || impact === 'MEDIUM';
+      })
+      .map((d, i) => {
+        const elem = (d.elements || [])[0];
+        const file = elem?.source_mapping?.filename_relative || elem?.source_mapping?.filename || 'unknown';
+        const lines = elem?.source_mapping?.lines || [];
+        return {
+          id: `SL-${i + 1}`,
+          title: `${d.check || d.detector || 'unknown'}: ${(d.description || '').slice(0, 80)}`,
+          severity: (d.impact || 'MEDIUM').toUpperCase(),
+          file,
+          line: lines[0] || null,
+          description: d.description || '',
+          category: d.check || d.detector || '',
+          source: 'slither'
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Parse semgrep JSON into normalized findings array.
+ */
+function parseSemgrepToFindings(semgrepPath) {
+  if (!existsSync(semgrepPath)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(semgrepPath, 'utf-8'));
+    const results = raw.results || [];
+
+    return results
+      .filter(r => {
+        const sev = (r.extra?.severity || r.severity || '').toUpperCase();
+        return sev === 'ERROR' || sev === 'WARNING';
+      })
+      .map((r, i) => ({
+        id: `SG-${i + 1}`,
+        title: r.check_id || r.rule_id || 'unknown',
+        severity: (r.extra?.severity || r.severity || 'MEDIUM').toUpperCase() === 'ERROR' ? 'HIGH' : 'MEDIUM',
+        file: r.path || 'unknown',
+        line: r.start?.line || r.line || null,
+        description: r.extra?.message || r.message || '',
+        category: r.check_id || r.rule_id || '',
+        source: 'semgrep'
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find findings from a source model or static analysis tools.
  */
 function findSourceFindings(runId, source) {
+  // Static analysis source: combine slither + semgrep findings
+  if (source === 'static') {
+    const REPORTS_DIR = join(PROJECT_DIR, 'reports');
+    const slitherFindings = parseSlitherToFindings(join(REPORTS_DIR, 'slither.json'));
+    const semgrepFindings = parseSemgrepToFindings(join(REPORTS_DIR, 'semgrep.json'));
+    const combined = [...slitherFindings, ...semgrepFindings];
+
+    if (combined.length > 0) {
+      console.log(`Found static analysis findings: ${slitherFindings.length} slither, ${semgrepFindings.length} semgrep`);
+      return { findings: combined, source: 'static-analysis' };
+    }
+    return null;
+  }
+
+  // ONLY check run-scoped paths — global .task/ and docs/ fallbacks removed
+  // to prevent cross-run contamination (stale findings from prior runs).
   const candidates = source === 'opus'
     ? [
         join(TASK_DIR, runId, 'opus-detect-findings.json'),
         join(TASK_DIR, runId, 'exploit-hunt-review.json'),
-        join(TASK_DIR, 'exploit-hunt-review.json'),
-        join(DOCS_DIR, 'reviews', 'exploit-hunt-review.json'),
       ]
     : [
         join(TASK_DIR, runId, 'codex-detect-findings.json'),
         join(TASK_DIR, runId, 'codex-deep-exploit-review.json'),
-        join(DOCS_DIR, 'reviews', 'codex-detect-findings.json'),
       ];
 
   for (const path of candidates) {
@@ -321,4 +403,4 @@ if (import.meta.main !== false) {
   main();
 }
 
-export { classifyMechanism, extractHints, extractLowHints, extractMediumHints, extractHighHints };
+export { classifyMechanism, extractHints, extractLowHints, extractMediumHints, extractHighHints, parseSlitherToFindings, parseSemgrepToFindings };
