@@ -3,3 +3,4 @@ review/
 *.log
 pipeline.config.local.json
 .claude/settings.local.json
+.worktrees/
