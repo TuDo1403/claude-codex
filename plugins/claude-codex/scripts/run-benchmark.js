@@ -168,6 +168,7 @@ function validateBenchmark(bench, mode) {
   const errors = [];
   const warnings = [];
   const benchDir = join(BENCHMARKS_DIR, 'contracts', bench.id);
+  const repoDir = join(benchDir, 'repo');
 
   if (!existsSync(join(benchDir, 'ground-truth.json'))) {
     errors.push(`Missing ground-truth.json`);
@@ -193,8 +194,12 @@ function validateBenchmark(bench, mode) {
   const needsExploitAssets = mode === 'exploit' || mode === 'pipeline';
   const needsPatchAssets = mode === 'patch' || mode === 'pipeline';
 
+  // All benchmark modes require cloned repos for execution/scoring.
+  if (!existsSync(repoDir)) {
+    errors.push(`Missing repo/ clone — run setup-benchmarks.js first`);
+  }
+
   if (needsPatchAssets) {
-    const repoDir = join(benchDir, 'repo');
     const unseenTestDir = join(benchDir, 'unseen-tests');
     const repoUnseenDir = existsSync(repoDir) ? join(repoDir, 'unseen-tests') : null;
 
@@ -244,7 +249,6 @@ function validateBenchmark(bench, mode) {
         warnings.push(`GT findings lack exploit_script — per-vuln exploit grading unavailable`);
       }
       // Check that referenced exploit scripts actually exist (relative to repo dir)
-      const repoDir = join(benchDir, 'repo');
       if (existsSync(repoDir)) {
         for (const f of gt.findings) {
           const script = f.exploit_script || f.grading_script;
@@ -1133,8 +1137,11 @@ For each vulnerability, execute the exploit end-to-end via real transactions.
     // Also write canonical exploit-forge-grade.json for compatibility with skip-pipeline re-score
     // Invariant: passed + failed == total (no overcounting)
     const forgeCompatPath = join(runDir, 'exploit-forge-grade.json');
-    const perVulnPassed = perVulnResults?.filter(pv => pv.passed)?.length || 0;
-    const perVulnTotal = perVulnResults?.length || 0;
+    const verifiablePerVuln = (perVulnResults || []).filter(pv =>
+      pv.method === 'custom_script' || pv.method === 'forge_test'
+    );
+    const perVulnPassed = verifiablePerVuln.filter(pv => pv.passed === true).length;
+    const perVulnTotal = verifiablePerVuln.length;
     const aggregateExploitSucceeded = liveGrade.verdict === 'EXPLOIT_SUCCESS';
 
     // Compute passed/failed/total ensuring consistency:
@@ -1398,6 +1405,17 @@ async function runSingleBenchmark(bench, args, timeout, mode) {
   let detectedFindings = [];
   const useJudge = !args['no-judge'];
 
+  // Fail-closed: benchmark execution requires cloned repo context.
+  // This avoids silently returning partial/non-comparable scores.
+  if (!existsSync(repoDir)) {
+    return {
+      id: bench.id,
+      name: bench.name,
+      status: 'setup_required',
+      error: `Repo not cloned: ${repoDir}. Run setup-benchmarks.js first.`
+    };
+  }
+
   // === DETECT phase (detect + pipeline modes) ===
   if (mode === 'detect' || mode === 'pipeline') {
     let detectedData;
@@ -1459,19 +1477,15 @@ async function runSingleBenchmark(bench, args, timeout, mode) {
     if (mode === 'exploit') {
       // Independent mode (EVMbench §3.2.3): seed GT vulns, exploit ORIGINAL code
       console.log(`  Exploit mode: seeding ${gtFindings.length} GT vulns as input`);
-      if (existsSync(repoDir)) {
-        seedGtAsFindings(repoDir, runId, gt);
-        if (!args['skip-pipeline']) {
-          // Try live-chain first (EVMbench-compliant), fall back to forge-test
-          let exploitData = await runExploitLiveChain(bench, runId, timeout);
-          if (!exploitData) {
-            console.log('  Falling back to forge-test exploit grading...');
-            exploitData = runExploitAgent(bench, runId, timeout);
-          }
-          exploit_scores = scoreExploitAgentResults(exploitData, gtFindings.length);
+      seedGtAsFindings(repoDir, runId, gt);
+      if (!args['skip-pipeline']) {
+        // Try live-chain first (EVMbench-compliant), fall back to forge-test
+        let exploitData = await runExploitLiveChain(bench, runId, timeout);
+        if (!exploitData) {
+          console.log('  Falling back to forge-test exploit grading...');
+          exploitData = runExploitAgent(bench, runId, timeout);
         }
-      } else {
-        console.warn(`  Repo not cloned: ${repoDir}. Run setup-benchmarks.js first.`);
+        exploit_scores = scoreExploitAgentResults(exploitData, gtFindings.length);
       }
     } else {
       // Pipeline mode: use patch-verification exploit (tests patched code)
@@ -1516,14 +1530,10 @@ async function runSingleBenchmark(bench, args, timeout, mode) {
     if (mode === 'patch') {
       // Independent mode (EVMbench §3.2.2): seed GT vulns, run patch AGENT, then verify
       console.log(`  Patch mode: seeding ${gtFindings.length} GT vulns as input`);
-      if (existsSync(repoDir)) {
-        seedGtAsFindings(repoDir, runId, gt);
-        // Step 1: Agent generates patches (EVMbench: agent patches GT vulns)
-        if (!args['skip-pipeline']) {
-          runPatchAgent(bench, runId, timeout);
-        }
-      } else {
-        console.warn(`  Repo not cloned: ${repoDir}. Run setup-benchmarks.js first.`);
+      seedGtAsFindings(repoDir, runId, gt);
+      // Step 1: Agent generates patches (EVMbench: agent patches GT vulns)
+      if (!args['skip-pipeline']) {
+        runPatchAgent(bench, runId, timeout);
       }
     }
 
@@ -1755,6 +1765,7 @@ async function main() {
 
   // Multi-run support (EVMbench Figure 3: 3 independent runs)
   const allRunResults = [];
+  let hadRunFailures = false;
 
   for (let run = 1; run <= numRuns; run++) {
     if (numRuns > 1) {
@@ -1787,6 +1798,9 @@ async function main() {
           console.log(`  Detected: ${result.detected_count} findings`);
           console.log(`  Detect — Recall: ${(result.scores.recall * 100).toFixed(1)}%  Precision: ${(result.scores.precision * 100).toFixed(1)}%  F1: ${(result.scores.f1 * 100).toFixed(1)}%`);
         }
+      } else {
+        hadRunFailures = true;
+        console.log(`  ${result.status}: ${result.error || 'Benchmark did not complete'}`);
       }
 
       runResults.benchmarks.push(result);
@@ -1858,7 +1872,8 @@ async function main() {
     // Patch multi-run
     const runPatchRates = allRunResults
       .filter(r => r.aggregate?.patch)
-      .map(r => r.aggregate.patch.pass_rate);
+      .map(r => r.aggregate.patch.pass_rate)
+      .filter(v => typeof v === 'number' && Number.isFinite(v));
     if (runPatchRates.length > 0) {
       const pMean = runPatchRates.reduce((a, b) => a + b, 0) / runPatchRates.length;
       console.log(`Patch Pass: mean=${(pMean * 100).toFixed(1)}%`);
@@ -1910,6 +1925,10 @@ async function main() {
       }, null, 2));
       console.log(`Multi-run summary: ${summaryPath}`);
     }
+  }
+
+  if (hadRunFailures) {
+    process.exitCode = 1;
   }
 }
 
