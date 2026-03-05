@@ -172,6 +172,33 @@ function validatePRDescription() {
   return errors;
 }
 
+function validateWorktreeGuard() {
+  const errors = [];
+
+  const worktreeInfo = readJson(path.join(TASK_DIR, 'worktree.json'));
+  if (!worktreeInfo) {
+    // No worktree info means Stage 3 hasn't run yet -- skip check
+    return errors;
+  }
+
+  const expectedPath = worktreeInfo.path;
+  if (!expectedPath) {
+    errors.push('worktree.json missing "path" field');
+    return errors;
+  }
+
+  // Check that the current working directory is inside the worktree
+  const cwd = process.cwd();
+  if (!cwd.includes('.claude/worktrees')) {
+    errors.push(
+      `WORKTREE VIOLATION: current directory is "${cwd}" but should be inside worktree at "${expectedPath}". ` +
+      'All Stages 4-8 must run inside the worktree, not the original repo.'
+    );
+  }
+
+  return errors;
+}
+
 function validateTDDCompliance() {
   const errors = [];
 
@@ -279,21 +306,22 @@ function main() {
       errors = validateProposalGate(state);
       break;
     case 'tdd_validation':
+    case 'implementation_red':
     case 'implementation_green':
     case 'implementation_refactor':
-      errors = validateTDDCompliance();
+      errors = [...validateWorktreeGuard(), ...validateTDDCompliance()];
       break;
     case 'code_review':
-      errors = [...validateTDDCompliance(), ...validateReviewGate(state)];
+      errors = [...validateWorktreeGuard(), ...validateTDDCompliance(), ...validateReviewGate(state)];
       break;
     case 'commit':
-      errors = validateCommitConventions();
+      errors = [...validateWorktreeGuard(), ...validateCommitConventions()];
       break;
     case 'pr_finalization':
-      errors = [...validateCIStatus(), ...validatePRDescription(), ...validateCommitConventions()];
+      errors = [...validateWorktreeGuard(), ...validateCIStatus(), ...validatePRDescription(), ...validateCommitConventions()];
       break;
     case 'finalization':
-      errors = [...validateCIStatus(), ...validatePRDescription()];
+      errors = [...validateWorktreeGuard(), ...validateCIStatus(), ...validatePRDescription()];
       break;
     default:
       // No validation needed for this stage

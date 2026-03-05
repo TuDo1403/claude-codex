@@ -331,14 +331,44 @@ Write `.task/proposal/proposal.json`:
    git worktree add .claude/worktrees/<branch-slug> -b <branch-name> origin/<main-branch>
    ```
 
-5. **Switch to worktree directory.**
+5. **Switch to worktree directory and verify:**
+
+   **CRITICAL**: ALL remaining stages (4-8) MUST run inside the worktree. The original repo directory must NOT be used for any file edits, test runs, or git operations after this point.
+
+   ```bash
+   # Get absolute path to the worktree
+   WORKTREE_PATH="$(pwd)/.claude/worktrees/<branch-slug>"
+
+   # Verify worktree exists and is valid
+   cd "$WORKTREE_PATH"
+   git rev-parse --show-toplevel  # must match WORKTREE_PATH
+   git worktree list  # verify this worktree shows up
+   ```
+
+6. **Move .task directory into worktree:**
+
+   All pipeline state files need to be accessible from the worktree. Copy the `.task/` dir into the worktree so relative paths work:
+   ```bash
+   cp -r <original-repo>/.task "$WORKTREE_PATH/.task"
+   ```
+
+7. **Verify you are in the worktree (hard gate):**
+
+   Run this check and STOP if it fails:
+   ```bash
+   # pwd must contain .claude/worktrees
+   pwd | grep -q '.claude/worktrees' || echo "FATAL: not in worktree"
+   ```
+
+   If this check fails, DO NOT proceed. Go back to step 5.
 
 ### Output
 
-Write `.task/worktree.json`:
+Write `.task/worktree.json` (inside the worktree):
 ```json
 {
-  "path": "/path/to/worktree",
+  "path": "/absolute/path/to/worktree",
+  "original_repo": "/absolute/path/to/original/repo",
   "branch": "team/team-123-brief-slug",
   "base_branch": "main",
   "created_at": "ISO timestamp"
@@ -347,7 +377,35 @@ Write `.task/worktree.json`:
 
 ---
 
+## Worktree Guard (Required Before Every Stage 4-8 Action)
+
+**Every stage from 4 onward MUST verify it is running inside the worktree before doing any work.** This is a hard requirement -- not optional.
+
+Before running any command, editing any file, or creating any artifact in Stages 4 through 8:
+
+```bash
+# Quick check: verify current directory is inside a worktree
+WORKTREE_CHECK=$(pwd)
+if [[ "$WORKTREE_CHECK" != *".claude/worktrees"* ]]; then
+  echo "FATAL: not in worktree directory. Current dir: $WORKTREE_CHECK"
+  echo "Read .task/worktree.json to find the worktree path and cd into it."
+  exit 1
+fi
+```
+
+If the check fails:
+1. Read `.task/worktree.json` from the original repo to find the worktree path
+2. `cd` into the worktree path
+3. Re-run the check
+4. If it still fails, stop and tell the user
+
+**Why this matters**: Without this guard, the agent will edit files and run tests in the original repo directory, meaning all changes go to the wrong branch and the worktree is pointless.
+
+---
+
 ## Stage 4: Implementation (Strict TDD)
+
+> **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding. ALL file edits and test commands must run inside the worktree.
 
 ### HARD RULE: Tests First, Always
 
@@ -601,6 +659,8 @@ Write `.task/impl-result.json`:
 
 ## Stage 5: Code Review (4-Gate)
 
+> **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding.
+
 ### IMPORTANT: Argument Until Agreement
 
 All 3 reviewers must fully agree. If any reviewer flags an issue, the others must also evaluate that specific concern. This is NOT a sequential pass -- it's a consensus-building process.
@@ -691,6 +751,8 @@ After 10 rounds without consensus, escalate:
 
 ## Stage 6: Commit & PR
 
+> **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding. Git operations MUST happen in the worktree -- commits and pushes from the original repo go to the wrong branch.
+
 ### Commit Rules
 
 1. **Stage changes:**
@@ -767,6 +829,8 @@ Write `.task/pr.json`:
 ---
 
 ## Stage 7: PR Finalization
+
+> **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding. Any code fixes pushed in this stage must come from the worktree.
 
 ### Overview
 
@@ -929,6 +993,8 @@ When commenting on PRs:
 ---
 
 ## Stage 8: Finalization
+
+> **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding.
 
 ### Instructions
 
@@ -1157,6 +1223,8 @@ Write `.task/pipeline-state.json` at each stage transition:
   "current_stage": "context_collection",
   "current_task": "T0",
   "started_at": "ISO timestamp",
+  "worktree_path": null,
+  "original_repo_path": null,
   "stages_completed": [],
   "iteration_counts": {
     "proposal_review": 0,
@@ -1167,6 +1235,8 @@ Write `.task/pipeline-state.json` at each stage transition:
 ```
 
 Update `current_stage` and `current_task` as you progress. Push completed stages to `stages_completed`.
+
+**After Stage 3**: Set `worktree_path` to the absolute path of the worktree, and `original_repo_path` to where the pipeline started. From this point on, the pipeline-state.json file lives INSIDE the worktree's `.task/` directory.
 
 ---
 
