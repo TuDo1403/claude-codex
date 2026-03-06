@@ -72,6 +72,15 @@ Stage 8: Finalization
 5. **CI must be green** -- Pipeline cannot complete with failing CI.
 6. **All PR comments resolved** -- Every review thread must be marked resolved before completion.
 7. **Optimal solutions only** -- No adhoc fixes. Every proposal must be the best approach, not a quick patch.
+8. **NEVER skip user prompts** -- When using AskUserQuestion, you MUST:
+   - Call AskUserQuestion and then **STOP COMPLETELY**
+   - Do NOT continue to the next step, do NOT assume what the user will answer
+   - Do NOT pre-fill an answer or decide on behalf of the user
+   - Do NOT write "assuming you want X" or "I'll go ahead with Y"
+   - Wait for the ACTUAL response from the user in the conversation
+   - Only after the user has responded in the chat do you proceed
+   - This applies to EVERY AskUserQuestion call -- context collection, team selection, approval gates, error recovery, all of them
+   - Violating this rule makes the entire pipeline useless because the user loses control over decisions
 
 ---
 
@@ -90,6 +99,10 @@ Options:
   4. Linear issue already exists
 ```
 
+**>>> STOP HERE. Wait for the user's actual response. Do NOT assume an answer. <<<**
+
+Only after the user responds, proceed to the matching section below:
+
 ### If Slack:
 - Ask which channel to scan
 - Use `mcp__slack__conversations_history` or `mcp__slack__conversations_search_messages` to find relevant messages
@@ -103,7 +116,10 @@ Options:
 
 ### If user-provided:
 - Collect the description via AskUserQuestion
-- Ask clarifying questions until requirements are clear
+- **>>> STOP and wait for the user's description. Do NOT make one up. <<<**
+- After receiving the description, ask clarifying questions if anything is ambiguous
+- **>>> STOP and wait for clarifications. Do NOT assume answers. <<<**
+- Only proceed when requirements are clear from the user's ACTUAL responses
 
 ### If Linear issue:
 - Read the issue using `mcp__linear-server__get_issue`
@@ -135,25 +151,27 @@ Check if a Linear issue already exists (from Stage 0 context).
 
 ### If no Linear issue:
 
-Ask the user for issue details using AskUserQuestion:
+Ask the user for issue details using AskUserQuestion. Ask each question ONE AT A TIME and wait for the response before asking the next:
 
 1. **Team** -- Ask which team:
    - Use `mcp__linear-server__list_teams` to get available teams
-   - Show options to user
+   - Show options to user via AskUserQuestion
+   - **>>> STOP. Wait for user to pick a team. Do NOT assume. <<<**
 
 2. **Cycle** -- Ask for cycle:
    - Use `mcp__linear-server__list_cycles` with the selected team
-   - Default suggestion: current cycle
+   - Show options with current cycle as default suggestion
+   - **>>> STOP. Wait for user to pick a cycle. Do NOT assume. <<<**
 
 3. **Priority** -- Ask for priority:
    - Options: Urgent (1), High (2), Normal (3), Low (4)
-   - Default: Normal (3)
+   - **>>> STOP. Wait for user to pick priority. Do NOT default to Normal without asking. <<<**
 
 4. **Milestones** -- Ask if there's a milestone:
    - Use `mcp__linear-server__list_milestones` if a project is associated
-   - Can skip if not applicable
+   - **>>> STOP. Wait for user's answer. <<<**
 
-5. **Create the issue:**
+5. **Create the issue** (only after ALL answers received from user):
    ```
    mcp__linear-server__save_issue with:
    - title: from context
@@ -268,7 +286,7 @@ If `needs_changes`: Apply feedback, restart from Gate 1.
 
 ### User Approval Gate
 
-After all 4 gates approve, present the proposal to the user with AskUserQuestion:
+After all 4 gates approve, present the FULL proposal to the user (not just a summary -- show the actual approach, files to modify, test strategy, and trade-offs) with AskUserQuestion:
 
 ```
 Question: "All 4 reviewers approved this proposal. Do you want to proceed?"
@@ -277,14 +295,23 @@ Options:
   2. I want changes (describe what)
 ```
 
-If user says changes needed: Apply their feedback, restart Stage 2 from scratch.
+**>>> STOP HERE. This is the most important gate in the pipeline. Do NOT proceed. Do NOT assume approval. Wait for the user's ACTUAL response in the chat. The entire point of this gate is that the user reviews and decides. <<<**
+
+- If user picks "Approved": proceed to Stage 3
+- If user picks "I want changes": apply their feedback, restart Stage 2 from scratch
+- If user provides custom text: read it carefully and apply their feedback
 
 ### Iteration Limit
 
-After 10 full loops without all-approved, escalate to user:
+After 10 full loops without all-approved, use AskUserQuestion to escalate:
 ```
-"Been going back and forth on this proposal for a while. Can you help break the deadlock? Here's where the reviewers keep disagreeing: [summary]"
+"been going back and forth on this proposal for a while. here's where the reviewers keep disagreeing: [summary]. can you help break the deadlock?"
+Options:
+  1. Force approve and move on
+  2. I'll give specific direction
+  3. Abort
 ```
+**>>> STOP. Wait for user input. Do NOT keep looping or auto-resolve the disagreement. <<<**
 
 ### Output
 
@@ -746,10 +773,15 @@ After all 3 reviews are collected:
 
 ### Iteration Limit
 
-After 10 rounds without consensus, escalate:
+After 10 rounds without consensus, use AskUserQuestion to escalate:
 ```
-"The reviewers can't seem to agree. Here's what each one keeps pushing back on: [summary]. What do you think?"
+"the code reviewers can't agree. here's what each one keeps pushing back on: [summary]. what do you think?"
+Options:
+  1. Force approve and move on
+  2. I'll give specific direction
+  3. Abort
 ```
+**>>> STOP. Wait for user input. Do NOT auto-resolve or keep looping. <<<**
 
 ---
 
@@ -1116,10 +1148,16 @@ When commenting on PRs:
 
 - Poll interval: 30-60 seconds (give bots time to respond)
 - Max iterations per phase: 30
-- After 30 iterations in Phase A without convergence, escalate:
+- After 30 iterations in Phase A without convergence, use AskUserQuestion:
   ```
-  "been going back and forth with the bots for a while. here's what's still unresolved: [summary]. want me to keep going or resolve these manually?"
+  "been going back and forth with the bots for a while. here's what's still unresolved: [summary]"
+  Options:
+    1. Keep going
+    2. Resolve remaining threads and move on
+    3. I'll handle the rest manually
+    4. Abort
   ```
+  **>>> STOP. Wait for user response. Do NOT auto-resolve or keep looping. <<<**
 
 ---
 
@@ -1135,15 +1173,25 @@ When commenting on PRs:
    - No pending bot comments
    - PR description clean (no em dashes, no Claude mention)
 
-2. **Request review from repo owners:**
+2. **Ask user who to request review from:**
+
+   First, list available reviewers:
    ```bash
-   # Get repo owner/maintainers
    gh api repos/<owner>/<repo>/collaborators --jq '.[].login'
    ```
-   Or use known reviewers from team configuration.
 
+   Then use AskUserQuestion to ask:
+   ```
+   "who should I request review from? here are the collaborators: [list]"
+   Options:
+     1. All collaborators
+     2. I'll pick specific people
+   ```
+   **>>> STOP. Wait for user to pick reviewers. Do NOT auto-request from everyone. <<<**
+
+   After user responds, request the reviews:
    ```bash
-   gh pr edit <pr> --add-reviewer <owner1>,<owner2>
+   gh pr edit <pr> --add-reviewer <selected_reviewers>
    ```
 
 3. **Update Linear issue:**
@@ -1386,25 +1434,37 @@ Update `current_stage` and `current_task` as you progress. Push completed stages
 2. Notify the user with AskUserQuestion:
    ```
    "hit a snag at [stage]: [error]. want me to retry or do something different?"
+   Options:
+     1. Retry this stage
+     2. Skip (if non-critical)
+     3. Abort the pipeline
    ```
-3. Based on user response:
-   - Retry: Re-run the failed stage
-   - Skip: Move to next stage (only if non-critical)
-   - Abort: Stop the pipeline
+3. **>>> STOP. Wait for the user's actual response. Do NOT auto-retry. Do NOT assume the user wants to continue. <<<**
+4. Only after the user responds, take the action they chose.
 
 ### If tests keep failing:
 
-After 5 consecutive test failure cycles:
+After 5 consecutive test failure cycles, use AskUserQuestion:
 ```
 "tests keep failing, been at this for a bit. here's what's going wrong: [summary]. mind taking a look?"
+Options:
+  1. Keep trying
+  2. I'll look at it and give you direction
+  3. Abort
 ```
+**>>> STOP. Wait for user response. Do NOT keep looping on your own. <<<**
 
 ### If reviewers can't agree:
 
-After 10 rounds:
+After 10 rounds, use AskUserQuestion:
 ```
 "the reviewers are going in circles. here's what they disagree on: [summary]. can you break the tie?"
+Options:
+  1. Go with [reviewer A]'s approach
+  2. Go with [reviewer B]'s approach
+  3. I'll decide -- here's what I want: [custom input]
 ```
+**>>> STOP. Wait for user to break the tie. Do NOT pick a side yourself. <<<**
 
 ---
 
