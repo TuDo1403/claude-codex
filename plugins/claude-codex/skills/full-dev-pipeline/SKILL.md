@@ -43,11 +43,15 @@ Stage 6: Commit & PR
   |-- Create PR (NO Claude auto-generated description)
   v
 Stage 7: PR Finalization
-  |-- Poll gemini bot comments -> fix -> push -> re-tag
-  |-- Poll codex bot comments -> fix -> push -> re-tag
-  |-- Poll claude bot comments -> fix -> push -> re-tag
-  |-- Check CI -> fix if failed -> loop until green
-  |-- All PR comments resolved
+  |-- Phase A: Bot Comment Resolution Loop
+  |     |-- Poll review threads
+  |     |-- Fix bugs (regression test first) / apply improvements / reply to invalid
+  |     |-- Resolve threads -> re-tag bots (/gemini review, copilot request, @codex)
+  |     |-- Loop until 0 unresolved threads
+  |-- HARD GATE: 0 unresolved threads
+  |-- Phase B: CI Check Loop
+  |     |-- Check CI -> fix if failed -> push -> wait -> loop until green
+  |     |-- Post-CI bot re-check (back to Phase A if new comments)
   v
 Stage 8: Finalization
   |-- Request review from repo owners
@@ -834,144 +838,268 @@ Write `.task/pr.json`:
 
 ### Overview
 
-This is a polling loop that monitors the PR for bot comments, CI status, and review threads. It keeps running until everything is clean.
-
-### Main Loop
+Stage 7 has **two phases in strict order**. Phase A MUST complete fully before Phase B starts. No exceptions.
 
 ```
-while (not all clear):
-  1. Poll PR status
-  2. Handle gemini bot comments
-  3. Handle codex bot comments
-  4. Handle claude bot comments
-  5. Check CI status
-  6. Check unresolved threads
-  7. Wait and repeat
+Phase A: Bot Comment Resolution Loop (repeat until 0 unresolved)
+  |-- Poll PR for review comments
+  |-- For each unresolved comment:
+  |     |-- If bug found: write regression test (RED) -> fix (GREEN) -> commit & push
+  |     |-- If valid non-bug: fix -> commit & push
+  |     |-- If not valid: reply with reason
+  |     |-- Reply to thread -> resolve thread
+  |-- Re-tag all bots for re-review
+  |-- Wait for bots to post new comments
+  |-- Repeat from top until 0 unresolved threads
+  v
+HARD GATE: unresolved == 0 (do NOT proceed to Phase B otherwise)
+  v
+Phase B: CI Check Loop (repeat until green)
+  |-- Check CI status
+  |-- If failed: read logs -> fix -> push -> wait for re-run
+  |-- Repeat until CI green
+  v
+Stage 8
 ```
 
-### Step 1: Poll PR Status
+---
+
+### Phase A: Bot Comment Resolution Loop
+
+This loop keeps running until every single review thread from every bot is resolved. You do NOT check CI during this phase -- focus entirely on resolving comments.
+
+#### Step A1: Poll PR for Review Threads
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
+  --owner <owner> --repo <repo> --pr <number>
+```
+
+Read `.task/pr-status.json` -> `review_threads.unresolved_details` for the list of unresolved threads.
+
+If `review_threads.unresolved == 0`, Phase A is done. Skip to Phase B.
+
+#### Step A2: Process Each Unresolved Thread
+
+For EACH unresolved review thread, read the comment and classify it:
+
+**Classification:**
+- **Bug report**: the reviewer found an actual bug (incorrect behavior, crash, security issue)
+- **Improvement**: valid suggestion that makes the code better (style, perf, readability)
+- **Not valid**: the reviewer is wrong or the comment doesn't apply
+
+#### Step A3: Fix -- Bug Reports (Regression Test Required)
+
+When a bot reviewer found a real bug, you MUST write a regression test BEFORE fixing it. This is the same TDD discipline as Stage 4.
+
+1. **Write a regression test that reproduces the bug:**
+   ```bash
+   # Write a test that exercises the exact scenario the reviewer flagged
+   # This test MUST fail on the current code (proving the bug exists)
+   <test_command> --filter "<regression_test_name>"
+   # Confirm it FAILS
+   ```
+
+2. **Fix the bug (minimal change to make the test pass):**
+   ```bash
+   # Edit the code to fix the issue
+   <test_command> --filter "<regression_test_name>"
+   # Confirm it PASSES now
+   ```
+
+3. **Run full test suite to check for regressions:**
+   ```bash
+   <test_command>
+   # ALL tests must pass
+   ```
+
+4. **Commit and push:**
+   ```bash
+   git add <test_file> <fix_file>
+   git commit -m "$(cat <<'EOF'
+   fix: <short description of the bug>
+
+   caught by <bot_name> review -- added regression test
+   EOF
+   )"
+   git push
+   ```
+
+5. **Reply to the thread and resolve:**
+   ```bash
+   # Reply
+   gh api graphql -f query='mutation {
+     addPullRequestReviewThreadReply(input: {
+       pullRequestReviewThreadId: "<THREAD_ID>",
+       body: "good catch, fixed and added a regression test"
+     }) { comment { id } }
+   }'
+   # Resolve
+   gh api graphql -f query='mutation {
+     resolveReviewThread(input: { threadId: "<THREAD_ID>" }) {
+       thread { isResolved }
+     }
+   }'
+   ```
+
+#### Step A4: Fix -- Improvements (No Regression Test Needed)
+
+For valid non-bug suggestions (style, perf, readability):
+
+1. **Apply the fix**
+2. **Run tests to make sure nothing breaks:**
+   ```bash
+   <test_command>
+   ```
+3. **Commit and push:**
+   ```bash
+   git add <files>
+   git commit -m "refactor: <short description of improvement>"
+   git push
+   ```
+4. **Reply and resolve the thread** (same GraphQL as Step A3.5)
+
+#### Step A5: Not Valid -- Reply and Resolve
+
+If the reviewer's comment is wrong or doesn't apply:
+
+```bash
+# Reply explaining why (informal language, be specific)
+gh api graphql -f query='mutation {
+  addPullRequestReviewThreadReply(input: {
+    pullRequestReviewThreadId: "<THREAD_ID>",
+    body: "hmm i think this is fine because [specific reason]"
+  }) { comment { id } }
+}'
+# Resolve
+gh api graphql -f query='mutation {
+  resolveReviewThread(input: { threadId: "<THREAD_ID>" }) {
+    thread { isResolved }
+  }
+}'
+```
+
+#### Step A6: Re-tag ALL Bots for Re-review
+
+After pushing fixes and resolving threads, re-tag every bot so they review the updated code. Each bot has a different tagging method:
+
+**Gemini** -- comment on the PR:
+```bash
+gh pr comment <pr_number> --body "/gemini review"
+```
+
+**Copilot** -- request review like a user (NOT a comment):
+```bash
+gh pr edit <pr_number> --add-reviewer "copilot"
+# If that doesn't work, use the API:
+gh api repos/<owner>/<repo>/pulls/<pr_number>/requested_reviewers \
+  -f "reviewers[]=copilot" --method POST
+```
+
+**Codex** -- comment on the PR:
+```bash
+gh pr comment <pr_number> --body "@codex /review"
+```
+
+#### Step A7: Wait for Bot Responses
+
+After re-tagging, wait for the bots to post new review comments:
+
+```bash
+# Wait 30-60 seconds for bots to pick up the review request
+sleep 60
+
+# Re-poll
+node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
+  --owner <owner> --repo <repo> --pr <number>
+```
+
+If new unresolved threads appeared, go back to Step A2 and process them.
+
+#### Step A8: Verify Zero Unresolved (Hard Gate)
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
+  --owner <owner> --repo <repo> --pr <number>
+```
+
+Check `.task/pr-status.json`:
+- `review_threads.unresolved` MUST be `0`
+- `unresolved_bot_issues` MUST be empty
+
+**HARD GATE: Do NOT proceed to Phase B if any threads are unresolved. Go back to Step A2.**
+
+### Batch Thread Resolution (Helper)
+
+If you've already addressed all issues in code and just need to resolve stale threads:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pr-thread.js" \
+  --owner <owner> --repo <repo> --pr <number> --all --reply "addressed in latest push"
+```
+
+Single thread:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pr-thread.js" --thread-id <THREAD_ID>
+```
+
+Use `--dry-run` to preview first.
+
+---
+
+### Phase B: CI Check Loop
+
+**Only enter Phase B after Phase A gate passes (0 unresolved threads).**
+
+#### Step B1: Check CI Status
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
   --owner <owner> --repo <repo> --pr <number> --wait-ci
 ```
 
-Read `.task/pr-status.json` for current state.
+Read `.task/pr-status.json` -> `ci` section.
 
-### Step 2: Handle Bot Review Comments (Gemini, Codex, Claude)
+If `ci.all_green == true`, Phase B is done. Proceed to Stage 8.
 
-For EACH bot that has unresolved review threads:
-
-1. **Read the thread** from `.task/pr-status.json` -> `review_threads.unresolved_details`
-
-2. **Evaluate if the issue is valid**
-
-3. **If valid -- fix and resolve:**
-   ```bash
-   # a) Fix the code
-   # b) Commit and push (NO co-author)
-   git add <files> && git commit -m "fix: address review feedback on <topic>"
-   git push
-   # c) Reply to the thread with what you fixed
-   gh api graphql -f query='mutation {
-     addPullRequestReviewThreadReply(input: {
-       pullRequestReviewThreadId: "<THREAD_ID>",
-       body: "fixed, good catch"
-     }) { comment { id } }
-   }'
-   # d) Resolve the thread
-   gh api graphql -f query='mutation {
-     resolveReviewThread(input: { threadId: "<THREAD_ID>" }) {
-       thread { isResolved }
-     }
-   }'
-   ```
-
-4. **If not valid -- reply and resolve:**
-   ```bash
-   # a) Reply explaining why (informal language)
-   gh api graphql -f query='mutation {
-     addPullRequestReviewThreadReply(input: {
-       pullRequestReviewThreadId: "<THREAD_ID>",
-       body: "hmm i think this is fine because [reason]"
-     }) { comment { id } }
-   }'
-   # b) Resolve the thread
-   gh api graphql -f query='mutation {
-     resolveReviewThread(input: { threadId: "<THREAD_ID>" }) {
-       thread { isResolved }
-     }
-   }'
-   ```
-
-5. **Re-tag the bot for re-review after pushing fixes:**
-   ```bash
-   # Gemini
-   gh pr comment <pr> --body "@gemini-code-assist /review"
-   # Codex
-   gh pr comment <pr> --body "@codex-bot review this please"
-   # Claude
-   gh pr comment <pr> --body "@claude-bot /review"
-   ```
-
-### Batch Thread Resolution (Alternative)
-
-If you've already addressed all issues and just need to resolve remaining threads:
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pr-thread.js" \
-  --owner <owner> --repo <repo> --pr <number> --all --reply "addressed in latest push"
-```
-
-Or resolve a single thread:
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pr-thread.js" --thread-id <THREAD_ID>
-```
-
-Use `--dry-run` to preview what will be resolved without actually doing it.
-
-### Step 3: CI Status
+#### Step B2: Fix CI Failures
 
 If CI failed:
-1. Read the failure details from `.task/pr-status.json`
-2. Check the failing check's logs:
+
+1. **Read the failure logs:**
    ```bash
    gh run view <run_id> --log-failed
    ```
-3. Fix the failing tests/builds
-4. Push changes (commit without co-author)
-5. Wait for CI to re-run
-6. Loop until CI green
 
-### Step 4: Final Thread Sweep
+2. **Fix the issue** (apply TDD if the failure reveals a bug -- write regression test first)
 
-After all fixes are pushed and CI is green, do a final sweep:
-
-1. **Re-poll to get latest thread status:**
+3. **Run tests locally to confirm the fix:**
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
-     --owner <owner> --repo <repo> --pr <number>
+   <test_command>
    ```
 
-2. **If any threads are STILL unresolved:**
-   - Read each one carefully
-   - Reply if not already replied to
-   - Resolve each thread explicitly:
-     ```bash
-     gh api graphql -f query='mutation {
-       resolveReviewThread(input: { threadId: "<THREAD_ID>" }) {
-         thread { isResolved }
-       }
-     }'
-     ```
-
-3. **Verify zero unresolved:**
+4. **Commit and push:**
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
-     --owner <owner> --repo <repo> --pr <number>
+   git add <files>
+   git commit -m "fix: <what CI failure was about>"
+   git push
    ```
-   Check `.task/pr-status.json` -> `review_threads.unresolved` must be `0`.
 
-4. **HARD GATE: Do NOT proceed to Stage 8 if `unresolved > 0`.**
+5. **Wait for CI to re-run, then go back to Step B1**
+
+#### Step B3: Post-CI Bot Re-check
+
+After CI goes green, do one final poll to make sure CI fixes didn't trigger new bot comments:
+
+```bash
+# Wait for bots to potentially review the new push
+sleep 60
+node "${CLAUDE_PLUGIN_ROOT}/scripts/poll-pr-status.js" \
+  --owner <owner> --repo <repo> --pr <number>
+```
+
+If new unresolved threads appeared from bots reviewing the CI fix commits, **go back to Phase A Step A2**. This is important -- CI fixes can introduce new review comments.
+
+If `review_threads.unresolved == 0` AND `ci.all_green == true`, Stage 7 is complete.
 
 ### PR Comment Style
 
@@ -979,16 +1107,19 @@ When commenting on PRs:
 - Use informal language like a normal developer
 - No em dashes, no robotic phrasing
 - Examples:
-  - "good catch, fixed in the latest push"
+  - "good catch, fixed and added a regression test"
   - "hmm i think this is fine because [reason]"
   - "yeah you're right, updated the approach"
   - "this was intentional -- [explanation]"
 
 ### Polling Configuration
 
-- Default poll interval: 30 seconds
-- Max polls: 60 (30 minutes total)
-- Between fixes, wait for CI before next poll
+- Poll interval: 30-60 seconds (give bots time to respond)
+- Max iterations per phase: 30
+- After 30 iterations in Phase A without convergence, escalate:
+  ```
+  "been going back and forth with the bots for a while. here's what's still unresolved: [summary]. want me to keep going or resolve these manually?"
+  ```
 
 ---
 
@@ -1195,17 +1326,24 @@ When commenting on PRs:
       "status": "pending"
     },
     {
-      "id": "T7",
-      "title": "PR finalization loop",
-      "stage": "pr_finalization",
+      "id": "T7A",
+      "title": "Phase A: Bot comment resolution loop (fix with regression tests, resolve threads, re-tag bots)",
+      "stage": "pr_comment_resolution",
       "blockedBy": ["T6"],
+      "status": "pending"
+    },
+    {
+      "id": "T7B",
+      "title": "Phase B: CI check loop (only after all comments resolved)",
+      "stage": "pr_finalization",
+      "blockedBy": ["T7A"],
       "status": "pending"
     },
     {
       "id": "T8",
       "title": "Request review and finalize",
       "stage": "finalization",
-      "blockedBy": ["T7"],
+      "blockedBy": ["T7B"],
       "status": "pending"
     }
   ]

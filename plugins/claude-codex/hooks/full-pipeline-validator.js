@@ -106,6 +106,43 @@ function validateCommitConventions() {
   return errors;
 }
 
+function validateCommentResolutionGate() {
+  const errors = [];
+  const prStatus = readJson(path.join(TASK_DIR, 'pr-status.json'));
+
+  if (!prStatus) {
+    errors.push('No PR status data available -- poll PR first');
+    return errors;
+  }
+
+  // Phase A gate: ALL review threads must be resolved BEFORE checking CI
+  if (prStatus.review_threads?.unresolved > 0) {
+    errors.push(
+      `PHASE A NOT COMPLETE: ${prStatus.review_threads.unresolved} unresolved review threads. ` +
+      'ALL bot comments must be resolved before moving to CI check (Phase B).'
+    );
+    if (prStatus.review_threads.unresolved_details?.length > 0) {
+      prStatus.review_threads.unresolved_details.forEach((thread) => {
+        const preview = thread.first_comment?.slice(0, 100) || 'no preview';
+        errors.push(`  Unresolved thread by ${thread.author}: ${preview}`);
+      });
+    }
+  }
+
+  if (prStatus.unresolved_bot_issues?.length > 0) {
+    errors.push(
+      `PHASE A NOT COMPLETE: ${prStatus.unresolved_bot_issues.length} unresolved bot comments. ` +
+      'Reply to each, resolve the thread, re-tag the bot, and loop until clean.'
+    );
+    prStatus.unresolved_bot_issues.forEach((issue) => {
+      const preview = issue.body?.slice(0, 100) || 'no preview';
+      errors.push(`  ${issue.bot} bot: ${preview}`);
+    });
+  }
+
+  return errors;
+}
+
 function validateCIStatus() {
   const errors = [];
   const prStatus = readJson(path.join(TASK_DIR, 'pr-status.json'));
@@ -317,11 +354,16 @@ function main() {
     case 'commit':
       errors = [...validateWorktreeGuard(), ...validateCommitConventions()];
       break;
+    case 'pr_comment_resolution':
+      // Phase A gate -- must pass before Phase B (CI check) starts
+      errors = [...validateWorktreeGuard(), ...validateCommentResolutionGate()];
+      break;
     case 'pr_finalization':
-      errors = [...validateWorktreeGuard(), ...validateCIStatus(), ...validatePRDescription(), ...validateCommitConventions()];
+      // Full Stage 7 gate -- both Phase A and Phase B must pass
+      errors = [...validateWorktreeGuard(), ...validateCommentResolutionGate(), ...validateCIStatus(), ...validatePRDescription(), ...validateCommitConventions()];
       break;
     case 'finalization':
-      errors = [...validateWorktreeGuard(), ...validateCIStatus(), ...validatePRDescription()];
+      errors = [...validateWorktreeGuard(), ...validateCommentResolutionGate(), ...validateCIStatus(), ...validatePRDescription()];
       break;
     default:
       // No validation needed for this stage
