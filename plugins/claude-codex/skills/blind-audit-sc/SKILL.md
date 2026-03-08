@@ -102,7 +102,7 @@ BUNDLE-STAGE3         BUNDLE-STAGE4
     |                   |
     v                   v
 STAGE 3: Spec Compliance Review     FAST SCAN (parallel)
-(blind to code)                     /solidity-auditor + /nemesis
+(blind to code)                     /solidity-auditor + /nemesis-auditor
     |                               |
     |                               v
     |                          docs/reviews/fast-scan-*.md
@@ -185,7 +185,7 @@ T7: spec_compliance_review     (blockedBy: [T4, T5])
 
 === FAST SCAN (mandatory, runs parallel to spec compliance) ===
 TFS: fast_scan_auditors         (blockedBy: [T4])
-     Runs: /solidity-auditor, /nemesis (feynman + state-inconsistency)
+     Runs: /solidity-auditor, /nemesis-auditor (feynman + state-inconsistency)
      Output: docs/reviews/fast-scan-solidity-auditor.md
              docs/reviews/fast-scan-nemesis.md
              .task/fast-scan-summary.json
@@ -809,7 +809,7 @@ Skill("solidity-auditor")
 # Copy to: docs/reviews/fast-scan-solidity-auditor.md
 
 # Step 2: Nemesis Auditor — iterative Feynman + State Inconsistency dual-pass (~3-8 min)
-Skill("nemesis")
+Skill("nemesis-auditor")
 # Output: .audit/findings/ (per the skill's own output format)
 # Copy to: docs/reviews/fast-scan-nemesis.md
 ```

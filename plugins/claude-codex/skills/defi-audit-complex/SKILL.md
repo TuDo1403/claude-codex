@@ -120,12 +120,12 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
 2) **FAST SCAN (community auditor skills)**
    Run all three community auditor skills in parallel for rapid vulnerability pre-seeding:
    - `/solidity-auditor` — parallelized multi-agent vector scan (reentrancy, access control, oracle, flash loan, etc.)
-   - `/nemesis` — iterative dual-pass using Feynman first-principles + state inconsistency detection
-   - `/feynman` and `/state-audit` — available as standalone sub-components
+   - `/nemesis-auditor` — iterative dual-pass using Feynman first-principles + state inconsistency detection
+   - `/feynman-auditor` and `/state-inconsistency-auditor` — available as standalone sub-components
 
    **Execution:**
    1. Run `/solidity-auditor` on all in-scope contracts
-   2. Run `/nemesis` on all in-scope contracts (runs `/feynman` + `/state-audit` internally)
+   2. Run `/nemesis-auditor` on all in-scope contracts (runs `/feynman-auditor` + `/state-inconsistency-auditor` internally)
    3. Merge outputs into `docs/reviews/fast-scan-summary.md` and `.task/fast-scan-summary.json`
 
    **Output feeds into:** Steps 3–7 (risk matrix, attack surface mapping, invariant writing, high-risk review, adversarial testing). All fast scan findings become initial investigation targets for deeper manual analysis.

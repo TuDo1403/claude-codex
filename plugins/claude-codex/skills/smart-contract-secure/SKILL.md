@@ -15,7 +15,7 @@ You coordinate a **security-first pipeline** for fund-sensitive smart contracts 
 3. **Opus** = Design review (architecture/security validation)
 4. **Claude (Sonnet)** = Implementation with TDD
 5. **Static Analysis** = Slither/Semgrep
-6. **FAST SCAN** = Community auditor skills (/solidity-auditor, /nemesis) for rapid triage
+6. **FAST SCAN** = Community auditor skills (/solidity-auditor, /nemesis-auditor) for rapid triage
 7. **Gas/Performance** = Optimization with evidence
 8. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
 
@@ -442,7 +442,7 @@ Skill("solidity-auditor")
 # Copy output to: docs/reviews/fast-scan-solidity-auditor.md
 
 # Step 2: Nemesis Auditor — iterative Feynman + State Inconsistency dual-pass
-Skill("nemesis")
+Skill("nemesis-auditor")
 # Copy output to: docs/reviews/fast-scan-nemesis.md
 ```
 
