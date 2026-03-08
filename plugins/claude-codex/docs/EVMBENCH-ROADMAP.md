@@ -321,13 +321,13 @@ Post-implementation review of the full EVMbench paper (including Appendices C-J)
 **Default config:**
 ```json
 "codex_stages": {
-  "requirements":  { "model": "gpt-5.3-codex", "reasoning": "medium" },
-  "design":        { "model": "gpt-5.3-codex", "reasoning": "high" },
-  "detect":        { "model": "gpt-5.3-codex", "reasoning": "high" },
-  "exploit":       { "model": "gpt-5.3-codex", "reasoning": "xhigh" },
-  "patch_verify":  { "model": "gpt-5.3-codex", "reasoning": "high" },
-  "review":        { "model": "gpt-5.3-codex", "reasoning": "high" },
-  "final_gate":    { "model": "gpt-5.3-codex", "reasoning": "high" }
+  "requirements":  { "model": "gpt-5.4-codex", "reasoning": "medium" },
+  "design":        { "model": "gpt-5.4-codex", "reasoning": "high" },
+  "detect":        { "model": "gpt-5.4-codex", "reasoning": "high" },
+  "exploit":       { "model": "gpt-5.4-codex", "reasoning": "xhigh" },
+  "patch_verify":  { "model": "gpt-5.4-codex", "reasoning": "high" },
+  "review":        { "model": "gpt-5.4-codex", "reasoning": "high" },
+  "final_gate":    { "model": "gpt-5.4-codex", "reasoning": "high" }
 }
 ```
 
