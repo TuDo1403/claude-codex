@@ -822,7 +822,24 @@ Options:
 
 ### Create PR
 
-1. **Build PR description:**
+1. **Get the current GitHub user** (this is who will be assigned to the PR):
+   ```bash
+   GH_USER=$(gh api user --jq '.login')
+   ```
+
+2. **Determine labels** from the task type in `.task/impl-plan.json`:
+   - `type = "fix"` -> label: `bug`
+   - `type = "feat"` -> label: `enhancement`
+   - `type = "refactor"` -> label: `refactor`
+   - Also check if the repo has these labels. If not, create them:
+     ```bash
+     gh label create "bug" --color "d73a4a" --description "something isn't working" 2>/dev/null || true
+     gh label create "enhancement" --color "a2eeef" --description "new feature or request" 2>/dev/null || true
+     gh label create "refactor" --color "e4e669" --description "code improvement without behavior change" 2>/dev/null || true
+     ```
+   - Add any extra labels from `.task/context.json` if the source had labels (e.g. from a GitHub issue or Linear)
+
+3. **Build PR description:**
    - Use informal language
    - No em dashes
    - No "Generated with Claude Code"
@@ -830,9 +847,13 @@ Options:
    - Reference the Linear issue
    - Describe what changed and why
 
-2. **Create PR:**
+4. **Create PR with assignee and labels:**
    ```bash
-   gh pr create --title "<short title>" --body "$(cat <<'EOF'
+   gh pr create \
+     --title "<short title>" \
+     --assignee "$GH_USER" \
+     --label "<label1>,<label2>" \
+     --body "$(cat <<'EOF'
    ## what changed
 
    <informal description of changes>
@@ -858,7 +879,9 @@ Write `.task/pr.json`:
   "number": 42,
   "url": "https://github.com/owner/repo/pull/42",
   "branch": "team/team-123-brief-slug",
-  "title": "pr title"
+  "title": "pr title",
+  "assignee": "github-username",
+  "labels": ["bug"]
 }
 ```
 
