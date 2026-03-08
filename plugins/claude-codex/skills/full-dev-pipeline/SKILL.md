@@ -2,7 +2,7 @@
 name: full-dev-pipeline
 description: End-to-end dev pipeline with 4-gate proposal review, multi-AI code review (Opus + Codex + Gemini), automated PR management, and bot comment resolution. Integrates Linear, Slack, GitHub.
 plugin-scoped: true
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TodoWrite
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TodoWrite, mcp__slither-mcp__*, mcp__serena__*
 ---
 
 # Full Dev Pipeline
@@ -13,12 +13,16 @@ End-to-end development pipeline from requirement gathering to PR finalization.
 
 ```
 Stage 0: Context Collection
+  |-- Initialize serena (onboarding + instructions)
+  |-- Detect project type (Solidity? -> slither scan)
   |-- Slack scan / GitHub PR / User input / Linear issue
   v
 Stage 1: Linear Issue Management
   |-- Create or link Linear issue (team, cycle, priority, milestones)
   v
 Stage 2: Proposal (4-gate review)
+  |-- serena: deep symbol analysis (find_symbol, find_referencing_symbols)
+  |-- slither (Solidity): security baseline, storage layout, call graph
   |-- Opus self-review -> Sonnet self-review -> Codex medium -> Codex high
   |-- Loop until all 4 approve
   |-- User approval gate (reject = restart Stage 2)
@@ -27,12 +31,14 @@ Stage 3: Worktree Setup
   |-- Create worktree from Linear branch
   |-- Checkout from main/master, pull latest
   v
-Stage 4: Implementation
-  |-- Implement fix/feature + add tests
-  |-- Run all tests, ensure correctness
+Stage 4: Implementation (serena + slither)
+  |-- serena: replace_symbol_body, insert_after_symbol, rename_symbol
+  |-- slither (Solidity): run_detectors after impl, verify storage layout
+  |-- Implement fix/feature + add tests (TDD: red -> green -> refactor)
   v
-Stage 5: Code Review (4-gate)
-  |-- Gate 1: Opus (security + dedup + perf)
+Stage 5: Code Review (4-gate + automated analysis)
+  |-- Pre-review: serena reference mapping + slither security scan
+  |-- Gate 1: Opus (security + dedup + perf + slither findings)
   |-- Gate 2: Codex (extra high reasoning)
   |-- Gate 3: Gemini (code-review extension style)
   |-- All must argue until fully agreed
@@ -45,7 +51,9 @@ Stage 6: Commit & PR
 Stage 7: PR Finalization
   |-- Phase A: Bot Comment Resolution Loop
   |     |-- Poll review threads
-  |     |-- Fix bugs (regression test first) / apply improvements / reply to invalid
+  |     |-- serena: find_symbol + find_referencing_symbols for context
+  |     |-- Fix findings (regression test first, serena for edits)
+  |     |-- slither (Solidity): re-run detectors after each fix
   |     |-- Resolve threads -> re-tag bots (/gemini review, copilot request, @codex)
   |     |-- Loop until 0 unresolved threads
   |-- HARD GATE: 0 unresolved threads
@@ -81,10 +89,56 @@ Stage 8: Finalization
    - Only after the user has responded in the chat do you proceed
    - This applies to EVERY AskUserQuestion call -- context collection, team selection, approval gates, error recovery, all of them
    - Violating this rule makes the entire pipeline useless because the user loses control over decisions
+9. **USE slither-mcp + serena MCP for code operations** -- these tools provide superior code analysis and editing:
+   - **serena**: Use `mcp__serena__find_symbol`, `mcp__serena__get_symbols_overview`, `mcp__serena__replace_symbol_body`, `mcp__serena__insert_after_symbol`, `mcp__serena__find_referencing_symbols` for all code navigation and editing. Prefer serena's symbolic operations over raw Read/Edit/Grep when working with code.
+   - **slither-mcp**: Use `mcp__slither-mcp__list_contracts`, `mcp__slither-mcp__get_contract`, `mcp__slither-mcp__run_detectors`, `mcp__slither-mcp__get_function_source`, `mcp__slither-mcp__get_function_callees`, `mcp__slither-mcp__get_storage_layout`, `mcp__slither-mcp__analyze_modifiers` for Solidity project analysis, security checks, and contract exploration. **MANDATORY** for any Solidity/smart contract project.
+   - Call `mcp__serena__check_onboarding_performed` at the start. If not done, call `mcp__serena__onboarding` to set up serena for the project.
+   - Call `mcp__serena__initial_instructions` at least once per session to understand serena's capabilities.
 
 ---
 
 ## Stage 0: Context Collection
+
+### Pre-flight: Initialize MCP Tools
+
+Before anything else, set up serena and detect the project type:
+
+1. **Initialize serena:**
+   ```
+   mcp__serena__initial_instructions()   -- read the serena manual
+   mcp__serena__check_onboarding_performed()  -- check if onboarding was done
+   ```
+   - If onboarding not performed: call `mcp__serena__onboarding()` and follow its instructions to set up serena for this project.
+   - Read any relevant serena memories: `mcp__serena__list_memories()` and read ones that look relevant.
+
+2. **Detect project type and scan codebase:**
+   ```
+   mcp__serena__get_symbols_overview(relative_path=".", depth=1)  -- understand project structure
+   ```
+
+3. **If Solidity/smart contract project detected** (foundry.toml, hardhat.config, .sol files):
+   ```
+   mcp__slither-mcp__get_project_overview(path="<project_root>")  -- contracts, functions, security findings
+   mcp__slither-mcp__list_contracts(path="<project_root>", exclude_paths=["lib/", "test/", "node_modules/"])  -- list source contracts
+   ```
+   Save overview to `.task/project-scan.json`:
+   ```json
+   {
+     "is_solidity": true,
+     "slither_overview": { "contract_count": 5, "function_count": 42, "findings_by_impact": {} },
+     "contracts": ["ContractA", "ContractB"],
+     "serena_onboarded": true
+   }
+   ```
+
+4. **If NOT a Solidity project:**
+   ```json
+   {
+     "is_solidity": false,
+     "serena_onboarded": true,
+     "language": "typescript|python|rust|go|etc"
+   }
+   ```
 
 ### Instructions
 
@@ -203,14 +257,59 @@ Write `.task/linear-issue.json`:
 
 ## Stage 2: Proposal (4-Gate Review)
 
+### Pre-analysis: Deep Codebase Understanding
+
+Before writing the proposal, use serena and slither to deeply understand the codebase:
+
+**For ALL projects -- use serena:**
+```
+# Find symbols related to the task
+mcp__serena__find_symbol(name_path_pattern="<relevant_class_or_function>", include_body=true)
+
+# Understand call chains
+mcp__serena__find_referencing_symbols(name_path="<symbol>", relative_path="<file>")
+
+# Get overview of files that will be modified
+mcp__serena__get_symbols_overview(relative_path="<file>", depth=1)
+```
+
+**For Solidity projects -- also use slither:**
+```
+# Understand the contract being modified
+mcp__slither-mcp__get_contract(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+
+# Check current security findings (baseline)
+mcp__slither-mcp__run_detectors(path="<project>", exclude_paths=["lib/", "test/", "node_modules/"])
+
+# Understand call graph for the affected functions
+mcp__slither-mcp__get_function_callees(path="<project>", function_key={signature: "<sig>", contract_name: "<name>", path: "<file>"})
+mcp__slither-mcp__get_function_callers(path="<project>", function_key={signature: "<sig>", contract_name: "<name>", path: "<file>"})
+
+# Check inheritance hierarchy
+mcp__slither-mcp__get_inherited_contracts(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+
+# Check storage layout (critical for upgradeable contracts)
+mcp__slither-mcp__get_storage_layout(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+
+# Check access control patterns
+mcp__slither-mcp__analyze_modifiers(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+```
+
+Include findings from serena/slither in the proposal. The proposal MUST reference:
+- Symbol dependencies found by serena (what calls what, what references what)
+- For Solidity: slither security baseline, storage layout considerations, modifier usage
+- Any existing security findings that the change might affect
+
 ### Instructions
 
 Generate a solution proposal that is optimal, not adhoc. The proposal must include:
 - Root cause analysis (for bugs) or design rationale (for features)
 - Approach description with trade-offs considered
-- Files to be modified
+- Files to be modified (with symbol-level detail from serena)
 - Test strategy
 - Potential risks
+- **Serena analysis**: symbol dependencies, referencing symbols, call chains
+- **Slither analysis** (Solidity only): security baseline, storage layout, modifier patterns
 
 ### Gate 1: Opus Self-Review
 
@@ -437,6 +536,42 @@ If the check fails:
 ## Stage 4: Implementation (Strict TDD)
 
 > **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding. ALL file edits and test commands must run inside the worktree.
+
+### Code Writing with Serena + Slither
+
+**MANDATORY**: Use serena's symbolic operations for all code navigation and editing:
+
+```
+# Navigate code -- PREFER these over raw Read/Grep:
+mcp__serena__find_symbol(name_path_pattern="<symbol>", include_body=true)       -- find and read any symbol
+mcp__serena__get_symbols_overview(relative_path="<file>", depth=1)              -- understand a file's structure
+mcp__serena__find_referencing_symbols(name_path="<sym>", relative_path="<f>")   -- find all usages of a symbol
+
+# Edit code -- PREFER these over raw Edit/Write:
+mcp__serena__replace_symbol_body(name_path="<sym>", relative_path="<f>", body="<new_body>")  -- replace a function/class body
+mcp__serena__insert_after_symbol(name_path="<sym>", relative_path="<f>", body="<code>")      -- insert code after a symbol
+mcp__serena__insert_before_symbol(name_path="<sym>", relative_path="<f>", body="<code>")     -- insert code before a symbol
+mcp__serena__rename_symbol(name_path="<sym>", relative_path="<f>", new_name="<name>")        -- rename across codebase
+```
+
+> **Why serena?** Serena operates at the symbol level (functions, classes, methods) with LSP-backed precision. It handles indentation, scoping, and cross-file references automatically. Raw Edit/Write is error-prone for large code changes.
+
+**For Solidity projects -- also use slither during implementation:**
+
+```
+# After writing implementation, run security check BEFORE committing:
+mcp__slither-mcp__run_detectors(path="<project>", exclude_paths=["lib/", "test/", "node_modules/"])
+
+# Compare with baseline from Stage 2 -- new findings = potential issues introduced
+# Check if your changes introduced new security findings:
+mcp__slither-mcp__get_function_source(path="<project>", function_key={signature: "<sig>", contract_name: "<name>", path: "<file>"})
+
+# Verify storage layout hasn't broken (critical for upgradeable contracts):
+mcp__slither-mcp__get_storage_layout(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+
+# Check for low-level call issues:
+mcp__slither-mcp__analyze_low_level_calls(path="<project>", contract_key={contract_name: "<name>", path: "<file>"})
+```
 
 ### HARD RULE: Tests First, Always
 
@@ -692,9 +827,57 @@ Write `.task/impl-result.json`:
 
 > **Worktree Guard**: Verify you are in the worktree (see "Worktree Guard" section above) before proceeding.
 
+### Pre-review: Automated Analysis with Slither + Serena
+
+Before the AI reviewers start, run automated analysis to feed into their reviews:
+
+**For ALL projects -- serena analysis:**
+```
+# Map all changed symbols and their references
+# For each file in the diff:
+mcp__serena__get_symbols_overview(relative_path="<changed_file>", depth=1)
+mcp__serena__find_referencing_symbols(name_path="<changed_symbol>", relative_path="<file>")
+```
+
+Save to `.task/reviews/pre-review-analysis.json`.
+
+**For Solidity projects -- slither security scan (MANDATORY):**
+```
+# Full security scan
+mcp__slither-mcp__run_detectors(path="<project>", exclude_paths=["lib/", "test/", "node_modules/"])
+
+# Compare with baseline from Stage 2 (.task/project-scan.json)
+# Any NEW findings = potential issues introduced by the implementation
+
+# Deep analysis of changed contracts
+mcp__slither-mcp__get_contract_dependencies(path="<project>", contract_key={...}, detect_circular=true)
+mcp__slither-mcp__analyze_low_level_calls(path="<project>")
+mcp__slither-mcp__analyze_modifiers(path="<project>")
+mcp__slither-mcp__get_storage_layout(path="<project>", contract_key={...})
+
+# Export call graph for reviewer context
+mcp__slither-mcp__export_call_graph(path="<project>", contract_key={...}, format="mermaid")
+```
+
+Save to `.task/reviews/slither-scan.json`. Include:
+```json
+{
+  "new_findings_vs_baseline": [],
+  "high_impact_findings": [],
+  "medium_impact_findings": [],
+  "storage_layout_changes": [],
+  "low_level_calls_added": [],
+  "call_graph_mermaid": "..."
+}
+```
+
+> **HARD RULE**: For Solidity projects, if slither finds any HIGH impact findings that were NOT in the baseline, the implementation MUST be fixed before code review proceeds. Go back to Stage 4, fix the issue (with regression test), and re-run slither.
+
 ### IMPORTANT: Argument Until Agreement
 
 All 3 reviewers must fully agree. If any reviewer flags an issue, the others must also evaluate that specific concern. This is NOT a sequential pass -- it's a consensus-building process.
+
+Feed the pre-review analysis (serena references, slither findings) into each reviewer's prompt so they have full context.
 
 ### Gate 1: Opus Security Review
 
@@ -706,6 +889,7 @@ Focus areas:
 - Performance optimization opportunities
 - Auth/authz correctness
 - Input validation completeness
+- **Slither findings** (Solidity): review all slither findings, verify false positives, flag real issues
 
 Output: `.task/reviews/review-opus-security.json`
 
@@ -976,6 +1160,22 @@ Append to this file after EACH fix. The hook will reject Phase A completion if a
 
 **ALL valid findings require a regression test BEFORE the fix.** This applies to bugs, security issues, performance problems, logic errors, missing edge cases -- anything where a test can demonstrate the problem. This is non-negotiable TDD discipline.
 
+**Use serena to understand the finding context before fixing:**
+```
+# Find the symbol the reviewer flagged
+mcp__serena__find_symbol(name_path_pattern="<flagged_function>", include_body=true)
+
+# Understand what calls it and what it calls
+mcp__serena__find_referencing_symbols(name_path="<symbol>", relative_path="<file>")
+```
+
+**For Solidity -- also check with slither:**
+```
+mcp__slither-mcp__get_function_source(path="<project>", function_key={signature: "<sig>", contract_name: "<name>", path: "<file>"})
+mcp__slither-mcp__get_function_callees(path="<project>", function_key={...})
+mcp__slither-mcp__get_function_callers(path="<project>", function_key={...})
+```
+
 1. **Write a regression test that exposes the issue:**
    ```bash
    # Write a test that exercises the exact scenario the reviewer flagged
@@ -986,9 +1186,12 @@ Append to this file after EACH fix. The hook will reject Phase A completion if a
 
    > **If the test passes on current code**: your test does not expose the issue. Rewrite the test until it fails. The test MUST prove the problem exists before you fix it.
 
-2. **Fix the issue (minimal change to make the test pass):**
+2. **Fix the issue using serena's symbolic editing (minimal change to make the test pass):**
+   ```
+   # PREFER serena's symbolic operations over raw Edit:
+   mcp__serena__replace_symbol_body(name_path="<function>", relative_path="<file>", body="<fixed_body>")
+   ```
    ```bash
-   # Edit the code to fix the issue
    <test_command> --filter "<regression_test_name>"
    # Confirm it PASSES now
    ```
@@ -999,7 +1202,13 @@ Append to this file after EACH fix. The hook will reject Phase A completion if a
    # ALL tests must pass -- zero regressions allowed
    ```
 
-4. **Commit and push:**
+4. **For Solidity: re-run slither to verify fix didn't introduce new issues:**
+   ```
+   mcp__slither-mcp__run_detectors(path="<project>", exclude_paths=["lib/", "test/", "node_modules/"])
+   ```
+   If new HIGH/MEDIUM findings appear that weren't in the baseline, fix them before committing.
+
+5. **Commit and push:**
    ```bash
    git add <test_file> <fix_file>
    git commit -m "$(cat <<'EOF'
@@ -1011,7 +1220,7 @@ Append to this file after EACH fix. The hook will reject Phase A completion if a
    git push
    ```
 
-5. **Reply to the thread and resolve:**
+6. **Reply to the thread and resolve:**
    ```bash
    # Reply
    gh api graphql -f query='mutation {
@@ -1032,7 +1241,14 @@ Append to this file after EACH fix. The hook will reject Phase A completion if a
 
 For pure style/formatting changes with NO behavioral impact (rename variable, reorder imports, add whitespace). These are rare -- most reviewer findings have testable behavior.
 
-1. **Apply the style fix**
+1. **Apply the style fix using serena when possible:**
+   ```
+   # For renames -- use serena to rename across the entire codebase:
+   mcp__serena__rename_symbol(name_path="<old_name>", relative_path="<file>", new_name="<new_name>")
+
+   # For other style changes:
+   mcp__serena__replace_symbol_body(name_path="<symbol>", relative_path="<file>", body="<styled_body>")
+   ```
 2. **Run tests to make sure nothing breaks:**
    ```bash
    <test_command>
