@@ -140,6 +140,20 @@ function validateCommentResolutionGate() {
     });
   }
 
+  // Validate regression test discipline: valid findings must have regression tests
+  const commentFixes = readJson(path.join(TASK_DIR, 'comment-fixes.json'));
+  if (commentFixes && Array.isArray(commentFixes.fixes)) {
+    for (const fix of commentFixes.fixes) {
+      if (fix.classification === 'valid_finding' && !fix.regression_test) {
+        errors.push(
+          `REGRESSION TEST MISSING: valid finding "${fix.thread_id || fix.description || 'unknown'}" ` +
+          'was fixed without a regression test. ALL valid findings require a regression test ' +
+          'that exposes the issue BEFORE the fix is applied.'
+        );
+      }
+    }
+  }
+
   return errors;
 }
 

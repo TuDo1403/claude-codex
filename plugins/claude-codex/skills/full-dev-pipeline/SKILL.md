@@ -939,23 +939,54 @@ If `review_threads.unresolved == 0`, Phase A is done. Skip to Phase B.
 For EACH unresolved review thread, read the comment and classify it:
 
 **Classification:**
-- **Bug report**: the reviewer found an actual bug (incorrect behavior, crash, security issue)
-- **Improvement**: valid suggestion that makes the code better (style, perf, readability)
-- **Not valid**: the reviewer is wrong or the comment doesn't apply
+- **Valid finding** (testable): the reviewer found an actual issue -- bug, security flaw, incorrect behavior, logic error, missing edge case, performance issue, or any problem where a test can demonstrate the wrong behavior. **This is the default -- assume valid unless clearly not.**
+- **Style-only**: pure formatting/naming change with no behavioral impact (e.g., rename variable, add whitespace, reorder imports). No test can expose wrong behavior because there IS no wrong behavior.
+- **Not valid**: the reviewer is wrong or the comment doesn't apply to this code.
 
-#### Step A3: Fix -- Bug Reports (Regression Test Required)
+> **HARD RULE**: If a finding describes ANY incorrect or suboptimal behavior that a test COULD expose, it is a "valid finding", NOT "style-only". When in doubt, classify as "valid finding".
 
-When a bot reviewer found a real bug, you MUST write a regression test BEFORE fixing it. This is the same TDD discipline as Stage 4.
+**Track every fix in `.task/comment-fixes.json`** -- the validator hook checks this file to enforce regression test discipline:
 
-1. **Write a regression test that reproduces the bug:**
+```json
+{
+  "fixes": [
+    {
+      "thread_id": "<THREAD_ID>",
+      "description": "short description of the finding",
+      "classification": "valid_finding",
+      "regression_test": "path/to/test_file.test.ts::test_name",
+      "fix_commit": "<commit_sha>",
+      "bot": "gemini|copilot|codex"
+    },
+    {
+      "thread_id": "<THREAD_ID>",
+      "description": "renamed variable for clarity",
+      "classification": "style_only",
+      "regression_test": null,
+      "fix_commit": "<commit_sha>",
+      "bot": "copilot"
+    }
+  ]
+}
+```
+
+Append to this file after EACH fix. The hook will reject Phase A completion if any `classification: "valid_finding"` entry has `regression_test: null`.
+
+#### Step A3: Fix -- Valid Findings (Regression Test REQUIRED)
+
+**ALL valid findings require a regression test BEFORE the fix.** This applies to bugs, security issues, performance problems, logic errors, missing edge cases -- anything where a test can demonstrate the problem. This is non-negotiable TDD discipline.
+
+1. **Write a regression test that exposes the issue:**
    ```bash
    # Write a test that exercises the exact scenario the reviewer flagged
-   # This test MUST fail on the current code (proving the bug exists)
+   # This test MUST fail on the current code (proving the issue exists)
    <test_command> --filter "<regression_test_name>"
-   # Confirm it FAILS
+   # Confirm it FAILS -- if it passes, your test is wrong (not exposing the issue)
    ```
 
-2. **Fix the bug (minimal change to make the test pass):**
+   > **If the test passes on current code**: your test does not expose the issue. Rewrite the test until it fails. The test MUST prove the problem exists before you fix it.
+
+2. **Fix the issue (minimal change to make the test pass):**
    ```bash
    # Edit the code to fix the issue
    <test_command> --filter "<regression_test_name>"
@@ -965,14 +996,14 @@ When a bot reviewer found a real bug, you MUST write a regression test BEFORE fi
 3. **Run full test suite to check for regressions:**
    ```bash
    <test_command>
-   # ALL tests must pass
+   # ALL tests must pass -- zero regressions allowed
    ```
 
 4. **Commit and push:**
    ```bash
    git add <test_file> <fix_file>
    git commit -m "$(cat <<'EOF'
-   fix: <short description of the bug>
+   fix: <short description of the issue>
 
    caught by <bot_name> review -- added regression test
    EOF
@@ -997,11 +1028,11 @@ When a bot reviewer found a real bug, you MUST write a regression test BEFORE fi
    }'
    ```
 
-#### Step A4: Fix -- Improvements (No Regression Test Needed)
+#### Step A4: Fix -- Style-Only (No Regression Test)
 
-For valid non-bug suggestions (style, perf, readability):
+For pure style/formatting changes with NO behavioral impact (rename variable, reorder imports, add whitespace). These are rare -- most reviewer findings have testable behavior.
 
-1. **Apply the fix**
+1. **Apply the style fix**
 2. **Run tests to make sure nothing breaks:**
    ```bash
    <test_command>
@@ -1009,10 +1040,12 @@ For valid non-bug suggestions (style, perf, readability):
 3. **Commit and push:**
    ```bash
    git add <files>
-   git commit -m "refactor: <short description of improvement>"
+   git commit -m "style: <short description of style change>"
    git push
    ```
 4. **Reply and resolve the thread** (same GraphQL as Step A3.5)
+
+> **WARNING**: If you are classifying many comments as "style-only" to skip regression tests, you are doing it wrong. Most reviewer findings are valid findings that need regression tests. Be honest about classification.
 
 #### Step A5: Not Valid -- Reply and Resolve
 
