@@ -90,6 +90,7 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
 ## Workflow Decision Tree
 
 - If auditing a complex protocol or big‑fund exposure: follow the Complex DeFi Audit Workflow.
+- **If starting a new audit: run FAST SCAN first** (step 2 in the workflow) to pre-seed targets.
 - If prioritizing findings: build the Risk Matrix first.
 - If modeling assumptions: start with the Trust Model.
 - If searching for exploit classes: use the Attack Patterns checklist.
@@ -116,13 +117,27 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
    - Record assumptions in the registry.
    - Use `mcp__serena__write_memory(memory_name: "audit/trust_model", content: "...")` to persist.
 
-2) **Build the risk matrix**
+2) **FAST SCAN (community auditor skills)**
+   Run all three community auditor skills in parallel for rapid vulnerability pre-seeding:
+   - `/solidity-auditor` — parallelized multi-agent vector scan (reentrancy, access control, oracle, flash loan, etc.)
+   - `/nemesis-auditor` — iterative dual-pass using Feynman first-principles + state inconsistency detection
+   - `/feynman-auditor` and `/state-inconsistency-auditor` — available as standalone sub-components
+
+   **Execution:**
+   1. Run `/solidity-auditor` on all in-scope contracts
+   2. Run `/nemesis-auditor` on all in-scope contracts (runs `/feynman-auditor` + `/state-inconsistency-auditor` internally)
+   3. Merge outputs into `docs/reviews/fast-scan-summary.md` and `.task/fast-scan-summary.json`
+
+   **Output feeds into:** Steps 3–7 (risk matrix, attack surface mapping, invariant writing, high-risk review, adversarial testing). All fast scan findings become initial investigation targets for deeper manual analysis.
+
+3) **Build the risk matrix**
    - Rank components by impact and likelihood.
    - Use `mcp__slither-mcp__run_detectors(path: ".", impact: ["High", "Medium"])` to seed the matrix with automated findings.
    - Focus on cross‑module and cross‑contract flows.
    - Use `mcp__slither-mcp__get_contract_dependencies(path: ".", detect_circular: true)` to map cross-contract dependencies.
+   - **Incorporate fast scan findings** — any HIGH/MED from fast scan auto-seeds the matrix.
 
-3) **Map the attack surface**
+4) **Map the attack surface**
     - Use `mcp__slither-mcp__list_functions(path: ".", visibility: ["external", "public"])` to enumerate entrypoints.
     - Use `mcp__slither-mcp__analyze_low_level_calls(path: ".")` to find callbacks, hooks, and external calls.
     - Use `mcp__slither-mcp__export_call_graph(path: ".", format: "mermaid")` to visualize call graph.
@@ -132,26 +147,27 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
     - Quantify max loss bounds per fund‑moving path.
     - When consulting Local Attack Pattern Repos, read at least one concrete PoC/attack/test file per repo (not just README/templates).
 
-4) **Write invariants**
+5) **Write invariants**
    - Total value conservation and accounting consistency.
    - Position and collateral constraints.
    - Use `mcp__serena__find_symbol(name_path_pattern: "totalSupply", include_body: true)` to trace accounting variables.
    - Use `mcp__slither-mcp__analyze_state_variables(path: ".")` to audit all state variables.
 
-5) **Review high‑risk paths**
+6) **Review high‑risk paths**
    - Use `mcp__slither-mcp__get_function_source(path: ".", function_key: ...)` to read each high-risk function.
    - Use `mcp__slither-mcp__get_function_callers(path: ".", function_key: ...)` to trace who calls each path.
    - Use `mcp__serena__find_referencing_symbols(name_path: "...", relative_path: "...")` for cross-reference analysis.
    - Liquidation, settlement, fee accounting, pricing updates.
    - Admin/upgrade and emergency flows.
+   - **Prioritize locations flagged by fast scan** — these are pre-validated targets.
 
-6) **Adversarial testing**
+7) **Adversarial testing**
    - Reentrancy, oracle manipulation, MEV ordering.
    - Extreme values, partial fills, and timing races.
    - Use `mcp__slither-mcp__run_detectors(path: ".", detector_names: ["reentrancy-eth", "reentrancy-no-eth", "reentrancy-benign"])` for reentrancy-specific analysis.
    - Use `mcp__slither-mcp__analyze_low_level_calls(path: ".")` to find delegatecall/assembly risks.
 
-7) **Report and mitigate**
+8) **Report and mitigate**
    - Provide severity, exploit path, and fixes.
    - If N>1 issues exist, reason into a chained exploit and map it to known patterns.
    - Add a concrete regression test for each risk above Low.
@@ -163,8 +179,9 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
 
 ## Required Deliverables
 
+- Fast scan summary (`docs/reviews/fast-scan-summary.md` + `.task/fast-scan-summary.json`).
 - Trust model + assumptions registry.
-- Risk matrix with severity/likelihood ranking.
+- Risk matrix with severity/likelihood ranking (incorporating fast scan findings).
 - Privilege graph and role tests.
 - Max loss bounds worksheet.
 - Invariant list and property tests.

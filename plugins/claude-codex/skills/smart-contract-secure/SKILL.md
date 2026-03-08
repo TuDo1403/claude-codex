@@ -15,8 +15,9 @@ You coordinate a **security-first pipeline** for fund-sensitive smart contracts 
 3. **Opus** = Design review (architecture/security validation)
 4. **Claude (Sonnet)** = Implementation with TDD
 5. **Static Analysis** = Slither/Semgrep
-6. **Gas/Performance** = Optimization with evidence
-7. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
+6. **FAST SCAN** = Community auditor skills (/solidity-auditor, /nemesis-auditor) for rapid triage
+7. **Gas/Performance** = Optimization with evidence
+8. **Final Gate** = Sonnet → Opus → **Codex** (must approve)
 
 **Task directory:** `${CLAUDE_PROJECT_DIR}/.task/`
 **Reports directory:** `${CLAUDE_PROJECT_DIR}/reports/`
@@ -88,9 +89,11 @@ GATE 2: Claude Implementation (TDD) [serena symbolic ops + slither-mcp checks]
     ↓ Source code + reports/forge-test.log
 GATE 3: Static Analysis [slither-mcp deep analysis + CLI]
     ↓ reports/slither.json + slither-mcp-analysis.md + suppressions.md
+FAST SCAN: Community Auditor Skills
+    ↓ docs/reviews/fast-scan-*.md + .task/fast-scan-summary.json
 GATE 4: Gas/Performance
     ↓ reports/gas-snapshots.md + perf-report.md
-CALIBRATION LOOP: Detect [slither-mcp] → Patch [serena] → Exploit
+CALIBRATION LOOP: Detect [slither-mcp] → Patch [serena] → Exploit (informed by fast scan)
     ↓ detect-findings.md + patch-validation.md + exploit-validation.md
 FINAL GATE: Multi-Review
     ↓ Sonnet → Opus → Codex (APPROVED required)
@@ -149,8 +152,9 @@ TaskCreate: "GATE 0: Codex Design/Strategy"           → T1 (blockedBy: [T0])
 TaskCreate: "GATE 1: Opus Design Review"              → T2 (blockedBy: [T1])
 TaskCreate: "GATE 2: Claude Implementation (TDD)"     → T3 (blockedBy: [T2])
 TaskCreate: "GATE 3: Static Analysis"                 → T4 (blockedBy: [T3])
+TaskCreate: "FAST SCAN: Community Auditor Skills"     → TFS (blockedBy: [T4])
 TaskCreate: "GATE 4: Gas/Performance"                 → T5 (blockedBy: [T4])
-TaskCreate: "CALIBRATION: Detect Coverage Sprint"     → T5a (blockedBy: [T5])
+TaskCreate: "CALIBRATION: Detect Coverage Sprint"     → T5a (blockedBy: [T5, TFS])
 TaskCreate: "CALIBRATION: Patch Closure Sprint"       → T5b (blockedBy: [T5a])
 TaskCreate: "CALIBRATION: Exploit Replay Sprint"      → T5c (blockedBy: [T5b])
 TaskCreate: "FINAL: Code Review - Sonnet"             → T6 (blockedBy: [T5c])
@@ -166,6 +170,7 @@ Save to `.task/pipeline-tasks.json`:
   "gate_1_opus_review": "T2-id",
   "gate_2_implementation": "T3-id",
   "gate_3_static_analysis": "T4-id",
+  "fast_scan_auditors": "TFS-id",
   "gate_4_gas_perf": "T5-id",
   "calibration_detect": "T5a-id",
   "calibration_patch": "T5b-id",
@@ -425,6 +430,46 @@ After implementation, run slither-mcp checks:
 
 ---
 
+### FAST SCAN: Community Auditor Skills (MANDATORY)
+
+**Purpose:** Run 3 community auditor skills for rapid vulnerability triage. Fast scan runs after static analysis (GATE 3) and feeds findings into the Calibration Detect sprint. Runs parallel to GATE 4 (Gas/Performance).
+
+**Execution (orchestrator runs sequentially within this task):**
+
+```
+# Step 1: Solidity Auditor — parallelized multi-agent vector scan
+Skill("solidity-auditor")
+# Copy output to: docs/reviews/fast-scan-solidity-auditor.md
+
+# Step 2: Nemesis Auditor — iterative Feynman + State Inconsistency dual-pass
+Skill("nemesis-auditor")
+# Copy output to: docs/reviews/fast-scan-nemesis.md
+```
+
+**Output Artifacts:**
+
+1. **`docs/reviews/fast-scan-solidity-auditor.md`** — Parallelized vector scan findings
+2. **`docs/reviews/fast-scan-nemesis.md`** — Feynman + State Inconsistency fusion findings
+3. **`.task/fast-scan-summary.json`** — Consolidated summary for downstream consumption
+
+```json
+{
+  "status": "complete",
+  "solidity_auditor": { "findings_count": 0, "high_med_count": 0 },
+  "nemesis": { "findings_count": 0, "high_med_count": 0, "passes": 0 },
+  "total_high_med": 0,
+  "pre_seeded_targets": ["file:line descriptions for Calibration agents"]
+}
+```
+
+**Downstream consumption:**
+- **Calibration Detect Sprint** reads `fast-scan-summary.json` and uses `pre_seeded_targets` as initial investigation targets
+- Detect agents MUST acknowledge fast scan findings and either confirm, escalate, or dismiss each one
+
+**Block condition:** Missing `fast-scan-summary.json` or `status` not `"complete"`
+
+---
+
 ### GATE 4: Gas/Performance Pass
 
 **Agent:** `perf-optimizer` (sonnet)
@@ -465,7 +510,9 @@ After implementation, run slither-mcp checks:
 - `mcp__slither-mcp__get_contract_dependencies(path: ".", detect_circular: true)` — cross-contract risks
 - Feed slither-mcp results into exploit-hunter prompt
 
-1. Run a focused discovery pass over in-scope files.
+**Pre-requisite:** MUST read `.task/fast-scan-summary.json` and `docs/reviews/fast-scan-*.md` before starting. Fast scan pre-seeded targets are the FIRST investigation targets.
+
+1. Run a focused discovery pass over in-scope files (starting from fast scan pre-seeded targets).
 2. Write findings incrementally to `docs/reviews/detect-findings.md`.
 3. Track each candidate with confidence and exploitability.
 

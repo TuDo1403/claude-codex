@@ -7,12 +7,13 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill
 
 # Blind-Audit Smart Contract Pipeline
 
-You coordinate a **6-stage blind-audit pipeline** (with **Adversarial Mode** substages) for fund-sensitive smart contracts with **strict blindness enforcement** between reviewers.
+You coordinate a **7-stage blind-audit pipeline** (with **Fast Scan** and **Adversarial Mode** substages) for fund-sensitive smart contracts with **strict blindness enforcement** between reviewers.
 
 **Key Blindness Rules:**
 - **Stage 0 (Requirements)** Codex gathers requirements with acceptance criteria
 - **Stage 3 (Spec Compliance)** reviews specs WITHOUT seeing code
-- **Stage 4 (Exploit Hunt)** reviews code WITHOUT seeing spec narrative
+- **FAST SCAN** runs 3 community auditor skills for rapid vulnerability triage BEFORE deep audit
+- **Stage 4 (Exploit Hunt)** reviews code WITHOUT seeing spec narrative, informed by fast scan
 - **Stage 4A-4C (Adversarial Mode)** Opus and Codex work independently, then dispute
 - **Stage 5 (Red-Team Loop)** iterates until all HIGH/MED issues CLOSED
 
@@ -100,11 +101,21 @@ BUNDLE-STAGE3         BUNDLE-STAGE4
 (NO code)             (NO spec prose)
     |                   |
     v                   v
-STAGE 3: Spec Compliance Review     STAGE 4: Exploit Hunt Review
-(blind to code)                     (blind to spec narrative)
+STAGE 3: Spec Compliance Review     FAST SCAN (parallel)
+(blind to code)                     /solidity-auditor + /nemesis-auditor
+    |                               |
+    |                               v
+    |                          docs/reviews/fast-scan-*.md
     |                               |
     v                               v
     +---------------+---------------+
+                    |
+                    v
+              STAGE 4: Exploit Hunt Review
+              (blind to spec narrative)
+              (INFORMED by fast scan findings)
+                    |
+                    v
                     |
                     v
     +=================================+
@@ -171,7 +182,17 @@ T5: bundle_generate_stage3     (blockedBy: [T4])
 T6: bundle_generate_stage4     (blockedBy: [T4])
 T7: spec_compliance_review     (blockedBy: [T4, T5])
     -> Loop if NEEDS_CHANGES: codex_spec_fix -> re-validate -> re-review
-T8: exploit_hunt_review        (blockedBy: [T6, T7])
+
+=== FAST SCAN (mandatory, runs parallel to spec compliance) ===
+TFS: fast_scan_auditors         (blockedBy: [T4])
+     Runs: /solidity-auditor, /nemesis-auditor (feynman + state-inconsistency)
+     Output: docs/reviews/fast-scan-solidity-auditor.md
+             docs/reviews/fast-scan-nemesis.md
+             .task/fast-scan-summary.json
+=== END FAST SCAN ===
+
+T8: exploit_hunt_review        (blockedBy: [T6, T7, TFS])
+    -> MUST read fast scan findings before hunting
     -> Loop if HIGH/MED issues: red_team_patch_game until all CLOSED
 
 === ADVERSARIAL MODE TASKS (if adversarial_mode: true) ===
@@ -238,6 +259,7 @@ T10: codex_final_gate          (blockedBy: [T9])
 - Full test code (`test/**/*.sol`)
 - `slither-summary.md` (if available)
 - `reports/slither-mcp-analysis.md` (slither-mcp deep analysis: detectors, call graph, dependencies, modifiers, low-level calls)
+- `fast-scan-summary.md` (fast scan findings — code-derived, NOT spec prose)
 
 **Excludes:**
 - `docs/security/threat-model.md` prose (attack surface descriptions, trust assumptions)
@@ -273,6 +295,7 @@ T10: codex_final_gate          (blockedBy: [T9])
 - Full source code (`src/**/*.sol`)
 - Full test code (`test/**/*.sol`)
 - `slither-summary.md` (if available)
+- `fast-scan-summary.md` (fast scan findings — code-derived, safe for adversarial bundles)
 
 **Excludes:**
 - `docs/security/threat-model.md` prose
@@ -292,6 +315,7 @@ T10: codex_final_gate          (blockedBy: [T9])
 - Full source code (`src/**/*.sol`)
 - Full test code (`test/**/*.sol`)
 - `slither-summary.md` (if available)
+- `fast-scan-summary.md` (fast scan findings — code-derived, safe for adversarial bundles)
 
 **Excludes:**
 - `docs/security/threat-model.md` prose
@@ -428,6 +452,13 @@ Read `.claude-codex.json` from project root (or use defaults):
     "max_redteam_iterations": 10,
     "require_regression_tests": true,
     "gate_strictness": "high",
+    "fast_scan": {
+      "enabled": true,
+      "run_solidity_auditor": true,
+      "run_nemesis": true,
+      "feed_to_exploit_hunt": true,
+      "feed_to_adversarial": true
+    },
     "adversarial": {
       "adversarial_mode": true,
       "min_attack_hypotheses": 8,
@@ -526,11 +557,12 @@ TaskCreate: "STAGE 3B: Run Tests & Collect Reports"    -> T4 (blockedBy: [T3])
 TaskCreate: "Generate Bundle Stage 3"                  -> T5 (blockedBy: [T4])
 TaskCreate: "Generate Bundle Stage 4"                  -> T6 (blockedBy: [T4])
 TaskCreate: "STAGE 3: Spec Compliance Review"          -> T7 (blockedBy: [T4, T5])
-TaskCreate: "STAGE 4: Exploit Hunt Review"             -> T8 (blockedBy: [T6, T7])
+TaskCreate: "FAST SCAN: Community Auditor Skills"      -> TFS (blockedBy: [T4])
+TaskCreate: "STAGE 4: Exploit Hunt Review"             -> T8 (blockedBy: [T6, T7, TFS])
 
 # === If adversarial_mode: true ===
-TaskCreate: "Generate Bundle Stage 4A"                 -> T8a (blockedBy: [T4])
-TaskCreate: "Generate Bundle Stage 4B"                 -> T8b (blockedBy: [T4])
+TaskCreate: "Generate Bundle Stage 4A"                 -> T8a (blockedBy: [T4, TFS])
+TaskCreate: "Generate Bundle Stage 4B"                 -> T8b (blockedBy: [T4, TFS])
 TaskCreate: "STAGE 4A: Opus Attack Plan"               -> T8c (blockedBy: [T8a])
 TaskCreate: "STAGE 4B: Codex Deep Exploit"             -> T8d (blockedBy: [T8b])
 TaskCreate: "Generate Bundle Stage 4C"                 -> T8e (blockedBy: [T8c, T8d])
@@ -560,6 +592,7 @@ Save to `.task/pipeline-tasks.json`:
   "bundle_stage3": "T5-id",
   "bundle_stage4": "T6-id",
   "stage_3_spec_compliance": "T7-id",
+  "fast_scan_auditors": "TFS-id",
   "stage_4_exploit_hunt": "T8-id",
   "bundle_stage4a": "T8a-id",
   "bundle_stage4b": "T8b-id",
@@ -757,6 +790,66 @@ Decision: APPROVED|NEEDS_CHANGES|NEEDS_CLARIFICATION
 ```
 
 **Loop:** If NEEDS_CHANGES -> codex_spec_fix -> re-validate -> re-review (same reviewer)
+
+---
+
+### FAST SCAN: Community Auditor Skills (MANDATORY)
+
+**Purpose:** Run 3 community auditor skills for rapid vulnerability triage BEFORE deep audit stages. Fast scan findings feed into Stage 4 and Adversarial Mode as pre-seeded targets.
+
+**Runs parallel to:** Stage 3 Spec Compliance Review (both depend on T4)
+**Blocks:** Stage 4 Exploit Hunt, Stage 4A/4B Adversarial Mode
+
+**Execution (orchestrator runs sequentially within this task):**
+
+```
+# Step 1: Solidity Auditor — parallelized multi-agent vector scan (~2-5 min)
+Skill("solidity-auditor")
+# Output: .audit/findings/ (per the skill's own output format)
+# Copy to: docs/reviews/fast-scan-solidity-auditor.md
+
+# Step 2: Nemesis Auditor — iterative Feynman + State Inconsistency dual-pass (~3-8 min)
+Skill("nemesis-auditor")
+# Output: .audit/findings/ (per the skill's own output format)
+# Copy to: docs/reviews/fast-scan-nemesis.md
+```
+
+**Output Artifacts:**
+
+1. **`docs/reviews/fast-scan-solidity-auditor.md`** — Parallelized vector scan findings
+2. **`docs/reviews/fast-scan-nemesis.md`** — Feynman + State Inconsistency fusion findings
+3. **`.task/fast-scan-summary.json`** — Consolidated summary for downstream consumption
+
+**`.task/fast-scan-summary.json` format:**
+```json
+{
+  "status": "complete",
+  "solidity_auditor": {
+    "findings_count": 0,
+    "high_med_count": 0,
+    "output_file": "docs/reviews/fast-scan-solidity-auditor.md"
+  },
+  "nemesis": {
+    "findings_count": 0,
+    "high_med_count": 0,
+    "passes": 0,
+    "output_file": "docs/reviews/fast-scan-nemesis.md"
+  },
+  "total_high_med": 0,
+  "pre_seeded_targets": ["file:line descriptions for Stage 4 agents"]
+}
+```
+
+**How downstream stages consume fast scan:**
+- **Stage 4 (Exploit Hunt):** Fast scan findings are included in `bundle-stage4/fast-scan-summary.md` (findings only, NO spec prose). The exploit hunter uses these as starting targets for deeper investigation.
+- **Stage 4A (Opus Attack Plan):** Fast scan findings included in `bundle-stage4a/fast-scan-summary.md`. Opus can use these as hypothesis seeds.
+- **Stage 4B (Codex Deep Exploit):** Fast scan findings included in `bundle-stage4b/fast-scan-summary.md`. Codex can use these as initial investigation targets.
+- **Adversarial bundles maintain isolation:** Fast scan findings are shared with BOTH Opus and Codex (not a blindness violation — fast scan is code-derived, not spec-derived).
+
+**Block condition:** Task TFS fails if:
+- Either skill invocation fails
+- `fast-scan-summary.json` missing or malformed
+- `status` is not `"complete"`
 
 ---
 

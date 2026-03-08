@@ -39,6 +39,7 @@ Titles containing "issues", "concerns", "problems", "various", or "multiple" wil
 - `public-api.md` - Extracted interfaces and function signatures (if available)
 - `slither-summary.md` - Static analysis findings (if available)
 - `scope.md` - Which files/contracts are in scope
+- `fast-scan-summary.md` - Pre-seeded findings from community auditor fast scan (if available)
 
 ---
 
@@ -84,6 +85,7 @@ For each vulnerability:
 
 ## Process
 
+0. **Ingest fast scan findings** - If `fast-scan-summary.md` exists, read it first. Use flagged file:line locations as pre-validated investigation targets. Verify independently — do NOT blindly trust. Also analyze code NOT mentioned by fast scan.
 1. **Scope review** - Read `scope.md` to identify in-scope contracts
 2. **Architecture scan** - Understand contract relationships and trust boundaries
 3. **Systematic analysis** - For each in-scope contract:
