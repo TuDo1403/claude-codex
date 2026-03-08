@@ -2,7 +2,7 @@
 name: blind-audit-sc
 description: Blind-audit pipeline for fund-sensitive smart contracts. Enforces strict separation - spec reviewers cannot see code, exploit hunters cannot see spec narrative. Red-team loop until all HIGH/MED issues CLOSED. Includes Adversarial Codex ↔ Opus Mode.
 plugin-scoped: true
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__slither-mcp__*, mcp__serena__*
 ---
 
 # Blind-Audit Smart Contract Pipeline
@@ -39,6 +39,42 @@ You coordinate a **6-stage blind-audit pipeline** (with **Adversarial Mode** sub
 4. **Codex leads and closes** - Codex writes specs, Codex gives final approval
 5. **Bundle validation** - Hooks block if blindness constraints violated
 6. **Coverage-first execution** - Do not stop at first bug; maximize High/Med discovery coverage before closure
+7. **Use serena + slither-mcp for ALL code operations** - Prefer serena symbolic tools over raw Read/Edit for code navigation and editing. Use slither-mcp for ALL security analysis, contract inspection, and call graph tracing. See Hard Rule below.
+
+---
+
+## Hard Rule: serena + slither-mcp Usage (MANDATORY)
+
+> **For Solidity projects, you MUST use serena MCP and slither-mcp MCP tools throughout the pipeline. Raw Read/Edit/Grep are fallbacks only.**
+
+### serena MCP Tools (code navigation + editing)
+- `mcp__serena__check_onboarding_performed` / `mcp__serena__onboarding` / `mcp__serena__initial_instructions` — Initialize at pipeline start
+- `mcp__serena__get_symbols_overview` — Understand file structure before editing
+- `mcp__serena__find_symbol` — Find classes, functions, variables by name pattern
+- `mcp__serena__find_referencing_symbols` — Find all references to a symbol (impact analysis)
+- `mcp__serena__replace_symbol_body` — Replace function/contract bodies (PREFERRED over Edit)
+- `mcp__serena__insert_after_symbol` / `mcp__serena__insert_before_symbol` — Add new code at precise locations
+- `mcp__serena__rename_symbol` — Rename across entire codebase
+- `mcp__serena__search_for_pattern` — Regex search with context
+- `mcp__serena__list_memories` / `mcp__serena__read_memory` / `mcp__serena__write_memory` — Persist audit knowledge across sessions
+
+### slither-mcp Tools (security analysis + contract inspection)
+- `mcp__slither-mcp__get_project_overview` — Project-wide stats (contract counts, function counts, finding distribution)
+- `mcp__slither-mcp__list_contracts` / `mcp__slither-mcp__search_contracts` — Discover contracts, filter by type
+- `mcp__slither-mcp__get_contract` / `mcp__slither-mcp__get_contract_source` — Contract metadata + source code
+- `mcp__slither-mcp__list_functions` / `mcp__slither-mcp__search_functions` — Find functions by visibility, modifiers, name patterns
+- `mcp__slither-mcp__get_function_source` — Read function implementation
+- `mcp__slither-mcp__get_function_callees` / `mcp__slither-mcp__get_function_callers` — Call graph traversal
+- `mcp__slither-mcp__get_inherited_contracts` / `mcp__slither-mcp__get_derived_contracts` — Inheritance analysis
+- `mcp__slither-mcp__get_storage_layout` — Storage slot analysis (upgrade safety, collision detection)
+- `mcp__slither-mcp__run_detectors` — Run security detectors with filtering by severity/confidence
+- `mcp__slither-mcp__analyze_modifiers` — Access control pattern analysis
+- `mcp__slither-mcp__analyze_low_level_calls` — Find call/delegatecall/staticcall/assembly usage
+- `mcp__slither-mcp__analyze_state_variables` — State variable audit
+- `mcp__slither-mcp__analyze_events` — Event definitions and indexed parameters
+- `mcp__slither-mcp__get_contract_dependencies` — Dependency mapping + circular dependency detection
+- `mcp__slither-mcp__export_call_graph` — Visual call graph (Mermaid/DOT)
+- `mcp__slither-mcp__find_dead_code` — Dead code detection
 
 ---
 
@@ -201,6 +237,7 @@ T10: codex_final_gate          (blockedBy: [T9])
 - Full source code (`src/**/*.sol`)
 - Full test code (`test/**/*.sol`)
 - `slither-summary.md` (if available)
+- `reports/slither-mcp-analysis.md` (slither-mcp deep analysis: detectors, call graph, dependencies, modifiers, low-level calls)
 
 **Excludes:**
 - `docs/security/threat-model.md` prose (attack surface descriptions, trust assumptions)
@@ -432,6 +469,15 @@ Read `.claude-codex.json` from project root (or use defaults):
 
 ## Pipeline Initialization
 
+### Step 0: serena Onboarding + slither-mcp Project Scan
+
+**Before any pipeline work begins:**
+1. Call `mcp__serena__check_onboarding_performed()` → if not done, call `mcp__serena__onboarding()` + `mcp__serena__initial_instructions()`
+2. Call `mcp__serena__list_memories()` → read any relevant project memories
+3. Call `mcp__slither-mcp__get_project_overview(path: ".")` → get contract counts, function counts, finding distribution
+4. Call `mcp__slither-mcp__list_contracts(path: ".", exclude_paths: ["lib/", "test/", "node_modules/"])` → discover in-scope contracts
+5. Save serena + slither context for all downstream stages
+
 ### Step 1: Load Configuration
 
 ```javascript
@@ -619,12 +665,32 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-requirements.js" --plugin-root "${CLAU
 **Agent:** `sc-implementer` (sonnet)
 **Purpose:** Implement approved design using TDD with Foundry.
 
+**Code Writing with serena + slither (REQUIRED):**
+
+Before writing code:
+- `mcp__serena__get_symbols_overview(relative_path: "src/")` — understand existing structure
+- `mcp__serena__find_symbol(name_path_pattern: "...", include_body: true)` — read existing implementations
+
+When writing code, prefer serena symbolic operations:
+- `mcp__serena__replace_symbol_body(name_path, relative_path, body)` — update functions/contracts
+- `mcp__serena__insert_after_symbol(name_path, relative_path, body)` — add new functions/modifiers
+- `mcp__serena__insert_before_symbol(name_path, relative_path, body)` — add imports/interfaces
+- `mcp__serena__rename_symbol(name_path, relative_path, new_name)` — rename across codebase
+
+After implementation, run slither-mcp checks:
+- `mcp__slither-mcp__run_detectors(path: ".", exclude_paths: ["lib/", "test/"])` — security scan
+- `mcp__slither-mcp__get_storage_layout(path: ".", contract_key: ...)` — verify storage layout matches design
+- `mcp__slither-mcp__analyze_modifiers(path: ".")` — verify access control patterns
+- `mcp__slither-mcp__get_function_callees(path: ".", function_key: ...)` — verify call graph
+
 **Process:**
 1. Read approved design artifacts
-2. Write invariant tests FIRST
-3. Write unit tests
-4. Implement minimal code to pass
-5. Run fuzz tests (min_fuzz_runs from config)
+2. Use serena to understand existing codebase structure
+3. Write invariant tests FIRST (using serena symbolic ops)
+4. Write unit tests
+5. Implement minimal code to pass (using serena symbolic ops)
+6. Run fuzz tests (min_fuzz_runs from config)
+7. Run slither-mcp post-implementation security check
 
 **Output:**
 - Source code in `src/`
@@ -699,11 +765,26 @@ Decision: APPROVED|NEEDS_CHANGES|NEEDS_CLARIFICATION
 **Agent:** `exploit-hunter` (opus)
 **Bundle:** `bundle-stage4/` (NO spec prose)
 
+**Pre-review: slither-mcp Deep Analysis (REQUIRED)**
+
+Before spawning the exploit-hunter, run slither-mcp analysis and include results in the bundle:
+- `mcp__slither-mcp__run_detectors(path: ".", exclude_paths: ["lib/", "test/"], impact: ["High", "Medium"])` — HIGH/MED findings
+- `mcp__slither-mcp__analyze_low_level_calls(path: ".", exclude_paths: ["lib/"])` — find call/delegatecall/assembly
+- `mcp__slither-mcp__get_contract_dependencies(path: ".", detect_circular: true)` — dependency map
+- `mcp__slither-mcp__export_call_graph(path: ".", format: "mermaid", max_nodes: 100)` — visual call graph
+- `mcp__slither-mcp__analyze_modifiers(path: ".")` — access control patterns
+- `mcp__slither-mcp__analyze_state_variables(path: ".")` — state variable audit
+
+Save outputs to `reports/slither-mcp-analysis.md` and include in Stage 4 bundle.
+
+**Feed slither-mcp results into exploit-hunter prompt** — include HIGH/MED detector findings, low-level call locations, dependency graph, and access control analysis as structured context.
+
 **Reviewer sees:**
 - `invariants-list.md` (ONLY numbered invariants with formal expressions)
 - `public-api.md` (interfaces extracted from code)
 - Full source code (`src/`, `test/`)
 - `slither-summary.md` (if available)
+- `reports/slither-mcp-analysis.md` (slither-mcp deep analysis)
 
 **Reviewer does NOT see:**
 - threat-model.md prose (attack surface descriptions, trust assumptions)
@@ -873,12 +954,26 @@ bun "${CLAUDE_PLUGIN_ROOT}/scripts/generate-hints.js" --run-id <run_id> --source
 
 **Agent:** `redteam-verifier` (sonnet)
 
+**Fix Implementation with serena + slither (REQUIRED):**
+
+For each fix:
+1. Use serena to understand the affected code:
+   - `mcp__serena__find_symbol(name_path_pattern: "<affected_function>", include_body: true)` — read current implementation
+   - `mcp__serena__find_referencing_symbols(name_path: "<affected_function>", relative_path: "...")` — understand impact of change
+2. Write regression test FIRST (using serena symbolic ops)
+3. Apply fix using serena:
+   - `mcp__serena__replace_symbol_body(...)` — update the vulnerable function
+4. Verify fix with slither-mcp:
+   - `mcp__slither-mcp__run_detectors(path: ".")` — confirm finding is resolved
+   - `mcp__slither-mcp__get_function_callees(path: ".", function_key: ...)` — verify call graph unchanged
+   - `mcp__slither-mcp__get_storage_layout(path: ".", contract_key: ...)` — verify storage unchanged
+
 **Process:**
 1. Parse `.task/<run_id>/consolidated-findings.json` for all HIGH/MED issues from detection stages.
    Fallback: parse `docs/reviews/exploit-hunt-review.md` if consolidation not available.
 2. For each issue:
    a. Create fix task
-   b. Implementer patches
+   b. Implementer patches (using serena symbolic ops + slither-mcp verification)
    c. Verifier confirms fix with regression test
    d. Mark CLOSED in issue log
 3. Repeat until all HIGH/MED CLOSED
@@ -1201,6 +1296,7 @@ STAGE 4B (Codex) ────────────────────┘
 6. **Same-reviewer re-review** - Fixes validated by same agent
 7. **Codex is final gate** - Pipeline NOT complete without Codex APPROVED
 8. **Max iterations enforced** - Per stage, then escalate
+9. **serena + slither-mcp mandatory** - Use serena for ALL code navigation/editing, slither-mcp for ALL security analysis. Raw Read/Edit/Grep are fallbacks only.
 
 ---
 
@@ -1216,7 +1312,8 @@ STAGE 4B (Codex) ────────────────────┘
 
 **Required tools:**
 - Foundry (forge, cast)
-- Slither (recommended)
+- Slither (recommended) + slither-mcp (REQUIRED for deep analysis)
+- serena MCP (REQUIRED for code navigation and editing)
 - Codex CLI (required for STAGE 1 and 6)
 - Bun (for scripts)
 

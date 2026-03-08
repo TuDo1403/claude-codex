@@ -1,6 +1,8 @@
 ---
 name: defi-audit-complex
 description: Audit complex DeFi contracts with a trust‑model‑first workflow, risk matrix, and known attack-pattern checklist. Use when reviewing high-value financial protocols, upgrades, liquidation/settlement logic, or cross‑module flows with large fund exposure.
+plugin-scoped: true
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion, Skill, mcp__slither-mcp__*, mcp__serena__*
 ---
 
 # Complex DeFi Audit
@@ -8,6 +10,44 @@ description: Audit complex DeFi contracts with a trust‑model‑first workflow,
 ## Overview
 
 Perform deep security reviews for sensitive, high‑value DeFi protocols using a trust model, risk matrix, privilege graph, and adversarial testing mindset.
+
+---
+
+## Hard Rule: serena + slither-mcp Usage (MANDATORY)
+
+> **For Solidity projects, you MUST use serena MCP and slither-mcp MCP tools throughout the audit. Raw Read/Edit/Grep are fallbacks only.**
+
+### Audit Initialization (before any review work)
+1. Call `mcp__serena__check_onboarding_performed()` → if not done, call `mcp__serena__onboarding()` + `mcp__serena__initial_instructions()`
+2. Call `mcp__serena__list_memories()` → read any relevant project memories
+3. Call `mcp__slither-mcp__get_project_overview(path: ".")` → project-wide stats
+4. Call `mcp__slither-mcp__list_contracts(path: ".", exclude_paths: ["lib/", "test/", "node_modules/"])` → discover in-scope contracts
+
+### serena MCP Tools (code navigation)
+- `mcp__serena__get_symbols_overview` — Understand file structure
+- `mcp__serena__find_symbol` — Find classes, functions, variables by name
+- `mcp__serena__find_referencing_symbols` — Find all references (impact analysis)
+- `mcp__serena__replace_symbol_body` — Update functions/contracts (PREFERRED over Edit)
+- `mcp__serena__insert_after_symbol` / `mcp__serena__insert_before_symbol` — Add code at precise locations
+- `mcp__serena__rename_symbol` — Rename across entire codebase
+- `mcp__serena__search_for_pattern` — Regex search with context
+- `mcp__serena__write_memory` — Persist audit findings across sessions
+
+### slither-mcp Tools (security analysis)
+- `mcp__slither-mcp__get_contract` / `mcp__slither-mcp__get_contract_source` — Contract metadata + source
+- `mcp__slither-mcp__list_functions` / `mcp__slither-mcp__search_functions` — Function discovery
+- `mcp__slither-mcp__get_function_source` — Read function implementation
+- `mcp__slither-mcp__get_function_callees` / `mcp__slither-mcp__get_function_callers` — Call graph
+- `mcp__slither-mcp__get_inherited_contracts` / `mcp__slither-mcp__get_derived_contracts` — Inheritance
+- `mcp__slither-mcp__get_storage_layout` — Storage slot analysis
+- `mcp__slither-mcp__run_detectors` — Security detectors (filter by severity/confidence)
+- `mcp__slither-mcp__analyze_modifiers` — Access control patterns
+- `mcp__slither-mcp__analyze_low_level_calls` — call/delegatecall/staticcall/assembly
+- `mcp__slither-mcp__analyze_state_variables` — State variable audit
+- `mcp__slither-mcp__analyze_events` — Event definitions
+- `mcp__slither-mcp__get_contract_dependencies` — Dependency map + circular detection
+- `mcp__slither-mcp__export_call_graph` — Visual call graph (Mermaid/DOT)
+- `mcp__slither-mcp__find_dead_code` — Dead code detection
 
 ## Required Inputs (to maximize audit quality)
 
@@ -32,7 +72,7 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
    - Fuzz/property tests with invariants (TVL conservation, accounting equality)
    - Regression tests for past issues
    - Adversarial tests: reentrancy, oracle manipulation, MEV ordering, timing races
-   - Static analysis outputs (Slither, Semgrep, SARIF) and coverage reports
+   - Static analysis: use `mcp__slither-mcp__run_detectors()` for Slither findings, plus Semgrep/SARIF if available
    - Echidna/Medusa config files if used
 
 4) **Specs, invariants, and assumptions**
@@ -70,38 +110,56 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
 
 1) **Define the trust model**
    - Enumerate roles, powers, and upgrade paths.
+   - Use `mcp__slither-mcp__analyze_modifiers(path: ".")` to discover all access control patterns.
+   - Use `mcp__serena__find_symbol(name_path_pattern: "onlyOwner", substring_matching: true)` to find all role-gated functions.
    - List external dependencies (oracles, bridges, keepers).
    - Record assumptions in the registry.
+   - Use `mcp__serena__write_memory(memory_name: "audit/trust_model", content: "...")` to persist.
 
 2) **Build the risk matrix**
    - Rank components by impact and likelihood.
+   - Use `mcp__slither-mcp__run_detectors(path: ".", impact: ["High", "Medium"])` to seed the matrix with automated findings.
    - Focus on cross‑module and cross‑contract flows.
+   - Use `mcp__slither-mcp__get_contract_dependencies(path: ".", detect_circular: true)` to map cross-contract dependencies.
 
 3) **Map the attack surface**
-    - Enumerate entrypoints, callbacks, hooks, and external calls.
-    - Identify critical state transitions and shared storage.
-    - Build a privilege graph for all role‑gated paths.
+    - Use `mcp__slither-mcp__list_functions(path: ".", visibility: ["external", "public"])` to enumerate entrypoints.
+    - Use `mcp__slither-mcp__analyze_low_level_calls(path: ".")` to find callbacks, hooks, and external calls.
+    - Use `mcp__slither-mcp__export_call_graph(path: ".", format: "mermaid")` to visualize call graph.
+    - Use `mcp__slither-mcp__get_storage_layout(path: ".", contract_key: ...)` to identify shared storage.
+    - Use `mcp__slither-mcp__get_function_callees(path: ".", function_key: ...)` for critical state transitions.
+    - Build a privilege graph for all role‑gated paths (use `mcp__slither-mcp__analyze_modifiers`).
     - Quantify max loss bounds per fund‑moving path.
     - When consulting Local Attack Pattern Repos, read at least one concrete PoC/attack/test file per repo (not just README/templates).
 
 4) **Write invariants**
    - Total value conservation and accounting consistency.
    - Position and collateral constraints.
+   - Use `mcp__serena__find_symbol(name_path_pattern: "totalSupply", include_body: true)` to trace accounting variables.
+   - Use `mcp__slither-mcp__analyze_state_variables(path: ".")` to audit all state variables.
 
 5) **Review high‑risk paths**
+   - Use `mcp__slither-mcp__get_function_source(path: ".", function_key: ...)` to read each high-risk function.
+   - Use `mcp__slither-mcp__get_function_callers(path: ".", function_key: ...)` to trace who calls each path.
+   - Use `mcp__serena__find_referencing_symbols(name_path: "...", relative_path: "...")` for cross-reference analysis.
    - Liquidation, settlement, fee accounting, pricing updates.
    - Admin/upgrade and emergency flows.
 
 6) **Adversarial testing**
    - Reentrancy, oracle manipulation, MEV ordering.
    - Extreme values, partial fills, and timing races.
+   - Use `mcp__slither-mcp__run_detectors(path: ".", detector_names: ["reentrancy-eth", "reentrancy-no-eth", "reentrancy-benign"])` for reentrancy-specific analysis.
+   - Use `mcp__slither-mcp__analyze_low_level_calls(path: ".")` to find delegatecall/assembly risks.
 
 7) **Report and mitigate**
    - Provide severity, exploit path, and fixes.
    - If N>1 issues exist, reason into a chained exploit and map it to known patterns.
    - Add a concrete regression test for each risk above Low.
+   - Use serena symbolic ops (`replace_symbol_body`, `insert_after_symbol`) to apply fixes.
+   - Re-run `mcp__slither-mcp__run_detectors(path: ".")` after each fix to verify resolution.
    - Document assumptions and operational controls.
    - Record max loss bounds for critical asset paths.
+   - Use `mcp__serena__write_memory(memory_name: "audit/findings", content: "...")` to persist findings.
 
 ## Required Deliverables
 
@@ -119,6 +177,7 @@ Provide these up front to drive the deepest bug coverage and best audit quality:
 - Treat upgrade/admin powers as critical risks.
 - Require invariant coverage for any refactor or optimization.
 - Emphasize exploitability and real‑world attack conditions.
+- **Use serena + slither-mcp for ALL code operations** — serena for code navigation/editing, slither-mcp for security analysis. Raw Read/Edit/Grep are fallbacks only.
 
 ## References
 
